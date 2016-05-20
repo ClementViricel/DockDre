@@ -3,7 +3,8 @@
 import os
 import optparse
 import re
-from subprocess import call
+import subprocess
+from subprocess import *
 
 import Bio
 from Bio import *
@@ -12,8 +13,10 @@ from Bio.PDB import PDBParser, PDBIO
 import rosetta
 from rosetta import *
 from rosetta.core.pack.rotamer_set import *
+from rosetta.core.pack.interaction_graph import *
 from rosetta.core.pack import *
 from rosetta.core.scoring import *
+from rosetta.core.graph import *
 from toolbox import *
 
 one_to_three = {'A': 'ALA',
@@ -114,7 +117,7 @@ def compute_interactions(pose,resfile,pdb_out):
     f.close()
     return pose
     
-def get_template_energy(pose, assign, out_file, resfile, score_file, matmut):
+def get_template_energy(pose, optsolution, optenergy, resfile, flexibles):
     score_fxn = create_score_function('talaris2014')
     task_design = TaskFactory.create_packer_task(pose)
     task_design.initialize_from_command_line()
@@ -124,44 +127,32 @@ def get_template_energy(pose, assign, out_file, resfile, score_file, matmut):
     rotsets = RotamerSets()
     ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
     ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
-    mat = numpy.loadtxt(assign, dtype=int)
-    total_energy = ig.get_one_body_energy_for_node_state(len(mat),int(mat[len(mat)-1]+1))
-    for i in range(0, len(mat)-1):
-        total_energy+=ig.get_one_body_energy_for_node_state(i+1,int(mat[i]+1))
-     #   print str(i+1)+" "+str(ig.get_one_body_energy_for_node_state(i+1,int(mat[i]+1)))
-        res = rotsets.rotamer_set_for_moltenresidue(i+1).rotamer(int(mat[i]+1))
-        copy_pose.replace_residue(rotsets.moltenres_2_resid(i+1), res, False)
-        for j in range(i+1, len(mat)):
-            if (ig.get_edge_exists(i+1, j+1)):
-                total_energy+=ig.get_two_body_energy_for_edge(i+1,j+1,int(mat[i]+1),int(mat[j]+1))
-    #            print str(i+1)+" "+str(j+1)+" "+str(ig.get_two_body_energy_for_edge(i+1,j+1,int(mat[i]+1),int(mat[j]+1)))
-    copy_pose.dump_pdb(out_file)
-    template_energy = total_energy
-    mutables = numpy.loadtxt(matmut,dtype=int)
-    for i in range(0, len(mutables)):
-        template_energy-=ig.get_one_body_energy_for_node_state(mutables[i],int(mat[mutables[i]-1]+1))
-#        print str(mutables[i])+" "+str(ig.get_one_body_energy_for_node_state(mutables[i],int(mat[mutables[i]-1]+1)))
-#        print "Removing "+str(ig.get_one_body_energy_for_node_state(mutables[i],int(mat[mutables[i]-1]+1)))+" from unary term "+str(mutables[i])
+    mat=optsolution
+    print len(mat)
+    template_energy = optenergy
+    for i in range(0, len(flexibles)):
+        print int(mat[flexibles[i]-1]+1)
+        template_energy-=ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1))
+#        print str(flexibles[i])+" "+str(ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1)))
+#        print "Removing "+str(ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1)))+" from unary term "+str(flexibles[i])
         for j in range(0,len(mat)):
-            if (ig.get_edge_exists(mutables[i], j+1)):
-                if (j+1) in mutables:
-                    if (mutables[i]<j+1):
-                        template_energy-=ig.get_two_body_energy_for_edge(mutables[i],j+1,int(mat[mutables[i]-1]+1),int(mat[j]+1))
-#                        print str(mutables[i])+" "+str(j+1)+" "+str(ig.get_two_body_energy_for_edge(mutables[i],j+1,int(mat[mutables[i]-1]+1),int(mat[j]+1)))+" "+str(ig.get_two_body_energy_for_edge(j+1,mutables[i],int(mat[j]+1),int(mat[mutables[i]-1]+1)))
+            if (ig.get_edge_exists(flexibles[i], j+1)):
+                if (j+1) in flexibles:
+                    if (flexibles[i]<j+1):
+                        template_energy-=ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1))
+#                        print str(flexibles[i])+" "+str(j+1)+" "+str(ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1)))+" "+str(ig.get_two_body_energy_for_edge(j+1,flexibles[i],int(mat[j]+1),int(mat[flexibles[i]-1]+1)))
                 else:
-                    if (mutables[i]<j+1):
-                        template_energy-=ig.get_two_body_energy_for_edge(mutables[i],j+1,int(mat[mutables[i]-1]+1),int(mat[j]+1))
+                    if (flexibles[i]<j+1):
+                        template_energy-=ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1))
                     else:
-                        template_energy-=ig.get_two_body_energy_for_edge(j+1,mutables[i],int(mat[j]+1),int(mat[mutables[i]-1]+1))
- #                   print str(mutables[i])+" "+str(j+1)+" "+str(ig.get_two_body_energy_for_edge(mutables[i],j+1,int(mat[mutables[i]-1]+1),int(mat[j]+1)))+" "+str(ig.get_two_body_energy_for_edge(j+1,mutables[i],int(mat[j]+1),int(mat[mutables[i]-1]+1)))
- #               print "Removing "+str(ig.get_two_body_energy_for_edge(mutables[i],j+1,int(mat[mutables[i]-1]+1),int(mat[j]+1)))+" from binary term "+str(mutables[i])+" "+str(j+1)
-#                ig.clear_two_body_energy_for_edge(mutables[i],j+1,int(mat[mutables[i]-1]+1),int(mat[j]+1))
-    f = open(score_file,'w')
-    f.write("Template energy: "+str(template_energy))
-    f.write("\nTotal energy: "+str(total_energy)+"\n")
+                        template_energy-=ig.get_two_body_energy_for_edge(j+1,flexibles[i],int(mat[j]+1),int(mat[flexibles[i]-1]+1))
+ #                   print str(flexibles[i])+" "+str(j+1)+" "+str(ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1)))+" "+str(ig.get_two_body_energy_for_edge(j+1,flexibles[i],int(mat[j]+1),int(mat[flexibles[i]-1]+1)))
+ #               print "Removing "+str(ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1)))+" from binary term "+str(flexibles[i])+" "+str(j+1)
+#                ig.clear_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1))
+
     return template_energy
 
-def get_Z_matrix(pose, assign, out_file, resfile, template_energy, matmut):
+def get_Z_matrix(pose, optsolution, out_file, resfile, template_energy, flexibles):
     copy_pose = Pose()
     copy_pose.assign(pose)
     score_fxn = create_score_function('talaris2014')
@@ -176,24 +167,24 @@ def get_Z_matrix(pose, assign, out_file, resfile, template_energy, matmut):
     ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
 #    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
     setup_IG_res_res_weights(pose, task_design, rotsets, ig) #Comment for latest Pyrosetta versions
-    mat = numpy.loadtxt(assign, dtype=int)
-    mutables = numpy.loadtxt(matmut, dtype=int)
+    mat = optsolution
+    
     binary_terms=StringIO.StringIO()
-    for res1 in range(0, len(mutables)):
-        for i in range(1, rotsets.rotamer_set_for_moltenresidue(mutables[res1]).num_rotamers()+1):
-            nres1=rotsets.rotamer_set_for_moltenresidue(mutables[res1]).rotamer(i).name3()
-            unary_ener=ig.get_one_body_energy_for_node_state(mutables[res1],i)
+    for res1 in range(0, len(flexibles)):
+        for i in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()+1):
+            nres1=rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).rotamer(i).name3()
+            unary_ener=ig.get_one_body_energy_for_node_state(flexibles[res1],i)
             for res2 in range(1,ig.get_num_nodes()+1):
-                if (ig.get_edge_exists(mutables[res1], res2)):
-                    if res2 in mutables:
-                        if (mutables[res1]<res2):
+                if (ig.get_edge_exists(flexibles[res1], res2)):
+                    if res2 in flexibles:
+                        if (flexibles[res1]<res2):
                             for j in range(1, rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers()+1):
-                                ener=str(ig.get_two_body_energy_for_edge(mutables[res1],res2,i,j))
+                                ener=str(ig.get_two_body_energy_for_edge(flexibles[res1],res2,i,j))
                                 nres2=rotsets.rotamer_set_for_moltenresidue(res2).rotamer(j).name3()
-                                binary_terms.write("ROT::ROT\t"+str(mutables[res1])+"-"+nres1+"-"+str(i)+"::"+str(res2)+"-"+nres2+"-"+str(j)+" "+ener+" "+ener+'\n')
+                                binary_terms.write("ROT::ROT\t"+str(flexibles[res1])+"-"+nres1+"-"+str(i)+"::"+str(res2)+"-"+nres2+"-"+str(j)+" "+ener+" "+ener+'\n')
                     else:
-                        unary_ener+=ig.get_two_body_energy_for_edge(mutables[res1],res2,i,mat[res2-1]+1)
-            f.write("ROT::BKB\t"+str(mutables[res1])+"-"+nres1+"-"+str(i)+" "+str(unary_ener)+" "+str(unary_ener)+'\n')
+                        unary_ener+=ig.get_two_body_energy_for_edge(flexibles[res1],res2,i,mat[res2-1]+1)
+            f.write("ROT::BKB\t"+str(flexibles[res1])+"-"+nres1+"-"+str(i)+" "+str(unary_ener)+" "+str(unary_ener)+'\n')
     f.write(binary_terms.getvalue())
     binary_terms.close()
     f.close()
@@ -237,12 +228,17 @@ def mutation_docking(pdb_file, sequence_file, jobs):
     input_file_name=os.getcwd() + '/' + pdb_file.split('.pdb')[0]
     ## create a score function and a scorefile
     scorefxn = create_score_function('talaris2014')
-    score_file_name = input_file_name + "_mut.sc"
-    score_file = open(score_file_name,'w')
+    #score_file_name = input_file_name + "_mut.sc"
+    #score_file = open(score_file_name,'w')
     
     ## parse the fasta sequence file into a dictionary : sequences[#position]=[list of mutation]
     sequences={}
     sequences=read_from_fasta(sequence_file)
+    
+    ## parse the flexible file to get the flexibles residues
+    flexibles=open("flexibles.receptor",'r')
+    flexibles=flexibles.readlines()[0]
+    flexibles=[int(i) for i in flexibles.split()]
     
     ## First minimisation (may do fastrelax ?) 
     movemap = MoveMap()
@@ -305,17 +301,37 @@ def mutation_docking(pdb_file, sequence_file, jobs):
       
       #### Compute FULL SCP Matrix and 
       compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/receptor.mat')
-      command="Convertor "+mut_folder+'/ligand.mat'
+      command=["Convertor",mut_folder+"/receptor.mat",mut_folder+"/receptor.LG"]
       call(command)
       
       compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/ligand.mat')
-      command="Convertor "+mut_folder+'/receptor.mat'
+      command=["Convertor",mut_folder+"/ligand.mat",mut_folder+"/ligand.LG"]
       call(command)
       
       ###### Calculate the optimal solution and optimal energy.
-      command=["toulbar2","-w=sol","receptor.LG"]
-      check_output(command)
+      command=["toulbar2",mut_folder+"/receptor.LG"]
+      tb2out=check_output(command)
+      tb2out=tb2out.split('\n')
+
+      for line in tb2out:
+        line_split=line.split()
+        if ("Optimum:" in line_split) and ("Energy:" in line_split):
+            OptEnergy=float(line_split[3])
+        elif ("Optimum:" in line_split) :
+			OptSolution=line_split[1].split('-')
+      OptSolution = [int(i) for i in OptSolution]
       
+      #~ mutables=[]
+      #~ for tuples in sequences.values():
+        #~ for mut in tuples:
+            #~ if len(mut)>0:
+                #~ mutables.append(mut[0])
+      #~ mutables = sorted(list(set(mutables)))
+      #~ print mutables
+      
+      Etemp=get_template_energy(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles)		
+      print Etemp
+      exit(1)
       #partners=chain_name[0]+'_'+chain_name[1]
       #sample_docking(mut_pose, partners, 1, 1, jobs, mut_folder+"/"+mut)
   else:
