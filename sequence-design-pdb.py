@@ -43,14 +43,13 @@ one_to_three = {'A': 'ALA',
     
 def rot_trans(pose, partners,
         translation = 0.2, rotation = 3.0,
-        jobs = 1, out = 'dock_output'):
+        jobs = 1, out = 'dock_output',flexibles):
  
     starting_p = pose
     dock_jump = 1
 
     setup_foldtree(starting_p, partners, Vector1([1]))
 
-    scorefxn_docking = create_score_function_ws_patch('talaris2014','docking')
     scorefxn_talaris = create_score_function('talaris2014')
     
     dock_pert = RigidBodyPerturbMover(dock_jump, translation, rotation)
@@ -69,10 +68,32 @@ def rot_trans(pose, partners,
     
     jd = PyJobDistributor(out, jobs, scorefxn_talaris)
     jd.native_pose = starting_p
+    counter=1
     while not jd.job_complete:
       starting_p=jd.native_pose
       perturb.apply(starting_p)
+      
+      compute_interactions(starting_p,'full.resfile', out+"_"+counter+".mat")
+      command=["Convertor",out+"_"+counter+".mat",out+"_"+counter+".LG"]
+      call(command)
+      
+      command=["toulbar2",out+"_"+counter+".LG"]
+      tb2out=check_output(command)
+      tb2out=tb2out.split('\n')
+      for line in tb2out:
+        line_split=line.split()
+        if ("Optimum:" in line_split) and ("Energy:" in line_split):
+            OptEnergy=float(line_split[3])
+        elif ("Optimum:" in line_split) :
+			OptSolution=line_split[1].split('-')
+      OptSolution = [int(i) for i in OptSolution]
+      
+      get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"_"+counter+".Zmat")
+      command=["Convertor",out+"_"+counter+".Zmat",out+"_"+counter+".ZLG"]
+      call(command)
+      
       jd.output_decoy(starting_p)
+      counter += 1
 
 def compute_interactions(pose,resfile,pdb_out):
     score_fxn = create_score_function('talaris2014')
@@ -202,7 +223,7 @@ def read_from_fasta(sequence_file):
         sequences[sequences_name]=mutations
     return sequences
 
-def mutation_docking(pdb_file, sequence_file, jobs):
+def mutation_rot_trans(pdb_file, sequence_file, jobs):
   if os.path.exists( os.getcwd() + '/' + pdb_file ) and pdb_file:
     init()
     pose=Pose()
@@ -309,6 +330,8 @@ def mutation_docking(pdb_file, sequence_file, jobs):
       tb2out=tb2out.split('\n')
       
       get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_rec,mut_folder+"/receptor.Zmat")	
+      command=["Convertor",mut_folder+"/receptor.Zmat",mut_folder+"/receptor.ZLG"]
+      call(command)
       
       ##### FOR THE LIGAND
       compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/ligand.mat')
@@ -327,13 +350,12 @@ def mutation_docking(pdb_file, sequence_file, jobs):
       OptSolution = [int(i) for i in OptSolution]
       
       get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_lig,mut_folder+"/ligand.Zmat")		
-     
+      command=["Convertor",mut_folder+"/ligand.Zmat",mut_folder+"/ligand.ZLG"]
+      call(command)
      
       # FOR THE COMPLEX
-      
-      
       compute_interactions(mut_pose,'full.resfile', mut_folder+"/"+mut+'_min.mat')
-      command=["Convertor",mut_folder+"/"+mut+'_min.LG',mut_folder+"/"+mut+'_min.LG']
+      command=["Convertor",mut_folder+"/"+mut+'_min.mat',mut_folder+"/"+mut+'_min.LG']
       call(command)
       
       command=["toulbar2",mut_folder+"/"+mut+'_min.LG']
@@ -348,10 +370,12 @@ def mutation_docking(pdb_file, sequence_file, jobs):
       OptSolution = [int(i) for i in OptSolution]
       
       get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/"+mut+'_min.Zmat')
+      command=["Convertor",mut_folder+"/"+mut+'_min.Zmat',mut_folder+"/"+mut+'_min.ZLG']
+      call(command)
       
-      exit(1)
-      #partners=chain_name[0]+'_'+chain_name[1]
-      #sample_docking(mut_pose, partners, 1, 1, jobs, mut_folder+"/"+mut)
+      partners=chain_name[0]+'_'+chain_name[1]
+      rot_trans(mut_pose, partners, 1, 1, jobs, mut_folder+"/"+mut,flexibles)
+      
   else:
     "ERROR: PDB FILE NOT IN THE FOLDER"
 
@@ -382,5 +406,5 @@ jobs = int(options.jobs)
 
 ################# MUTATION, PDB and MATRIX PRODUCTION #############
         
-mutation_docking(pdb_file,sequence_file, jobs)
+mutation_rot_trans(pdb_file,sequence_file, jobs)
 
