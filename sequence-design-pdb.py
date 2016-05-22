@@ -117,7 +117,7 @@ def compute_interactions(pose,resfile,pdb_out):
     f.close()
     return pose
     
-def get_template_energy(pose, optsolution, optenergy, resfile, flexibles):
+def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     score_fxn = create_score_function('talaris2014')
     task_design = TaskFactory.create_packer_task(pose)
     task_design.initialize_from_command_line()
@@ -149,26 +149,9 @@ def get_template_energy(pose, optsolution, optenergy, resfile, flexibles):
  #                   print str(flexibles[i])+" "+str(j+1)+" "+str(ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1)))+" "+str(ig.get_two_body_energy_for_edge(j+1,flexibles[i],int(mat[j]+1),int(mat[flexibles[i]-1]+1)))
  #               print "Removing "+str(ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1)))+" from binary term "+str(flexibles[i])+" "+str(j+1)
 #                ig.clear_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1))
-
-    return template_energy
-
-def get_Z_matrix(pose, optsolution, out_file, resfile, template_energy, flexibles):
-    copy_pose = Pose()
-    copy_pose.assign(pose)
-    score_fxn = create_score_function('talaris2014')
-    task_design = TaskFactory.create_packer_task(pose)
-    f = open(out_file,'w')
-    f.write("Etemp = "+str(template_energy)+"\n")
-    task_design.initialize_from_command_line()
-    parse_resfile(pose, task_design, resfile)
-    pose.update_residue_neighbors()
- #   png = create_packer_graph(pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
-    rotsets = RotamerSets()
-    ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
-#    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
-    setup_IG_res_res_weights(pose, task_design, rotsets, ig) #Comment for latest Pyrosetta versions
-    mat = optsolution
     
+    f = open(out_matrix,'w')
+    f.write("Etemp = "+str(template_energy)+"\n")
     binary_terms=StringIO.StringIO()
     for res1 in range(0, len(flexibles)):
         for i in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()+1):
@@ -188,8 +171,7 @@ def get_Z_matrix(pose, optsolution, out_file, resfile, template_energy, flexible
     f.write(binary_terms.getvalue())
     binary_terms.close()
     f.close()
-
-
+    
 def compare_seq(seq1,seq2):
   seq_mut=[]
   if seq1==seq2:
@@ -236,9 +218,15 @@ def mutation_docking(pdb_file, sequence_file, jobs):
     sequences=read_from_fasta(sequence_file)
     
     ## parse the flexible file to get the flexibles residues
-    flexibles=open("flexibles.receptor",'r')
-    flexibles=flexibles.readlines()[0]
-    flexibles=[int(i) for i in flexibles.split()]
+    flexibles_rec=open("flexibles.receptor",'r')
+    flexibles_rec=flexibles_rec.readlines()[0]
+    flexibles_rec=[int(i) for i in flexibles_rec.split()]
+    
+    flexibles_lig=open("flexibles.receptor",'r')
+    flexibles_lig=flexibles_lig.readlines()[0]
+    flexibles_lig=[int(i) for i in flexibles_lig.split()]
+    
+    flexibles=sorted(flexibles_rec+flexibles_lig)
     
     ## First minimisation (may do fastrelax ?) 
     movemap = MoveMap()
@@ -271,9 +259,8 @@ def mutation_docking(pdb_file, sequence_file, jobs):
       #~ packmover = PackRotamersMover(scorefxn, pose_packer)
       #~ packmover.apply(mut_pose)
         
-      ## Minimization on the mutable pose. Useless ?
+      ## Minimization on the mutant pose. Useless ?
       minmover.apply(mut_pose)
-      
       mut_pose.dump_pdb(mut_folder+"/"+mut+'_min.pdb')
 
       io = PDBIO()
@@ -299,16 +286,12 @@ def mutation_docking(pdb_file, sequence_file, jobs):
       #command=str(mut+' '+str(scorefxn(mut_pose))+' '+str(scorefxn(pose_prot_1))+' '+str(scorefxn(pose_prot_2))+'\n')
       #score_file.write(command)
       
-      #### Compute FULL SCP Matrix and 
+      ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy and compute Z matrix.
+      ##### FOR THE RECEPTOR
       compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/receptor.mat')
-      command=["Convertor",mut_folder+"/receptor.mat",mut_folder+"/receptor.LG"]
+      command=["Convertor",mut_folder+'/receptor.mat',mut_folder+'/receptor.LG']
       call(command)
       
-      compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/ligand.mat')
-      command=["Convertor",mut_folder+"/ligand.mat",mut_folder+"/ligand.LG"]
-      call(command)
-      
-      ###### Calculate the optimal solution and optimal energy.
       command=["toulbar2",mut_folder+"/receptor.LG"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
@@ -321,16 +304,51 @@ def mutation_docking(pdb_file, sequence_file, jobs):
 			OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
       
-      #~ mutables=[]
-      #~ for tuples in sequences.values():
-        #~ for mut in tuples:
-            #~ if len(mut)>0:
-                #~ mutables.append(mut[0])
-      #~ mutables = sorted(list(set(mutables)))
-      #~ print mutables
+      command=["toulbar2",mut_folder+"/receptor.LG"]
+      tb2out=check_output(command)
+      tb2out=tb2out.split('\n')
       
-      Etemp=get_template_energy(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles)		
-      print Etemp
+      get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_rec,mut_folder+"/receptor.Zmat")	
+      
+      ##### FOR THE LIGAND
+      compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/ligand.mat')
+      command=["Convertor",mut_folder+"/ligand.mat",mut_folder+"/ligand.LG"]
+      call(command)
+      
+      command=["toulbar2",mut_folder+"/receptor.LG"]
+      tb2out=check_output(command)
+      tb2out=tb2out.split('\n')
+      for line in tb2out:
+        line_split=line.split()
+        if ("Optimum:" in line_split) and ("Energy:" in line_split):
+            OptEnergy=float(line_split[3])
+        elif ("Optimum:" in line_split) :
+			OptSolution=line_split[1].split('-')
+      OptSolution = [int(i) for i in OptSolution]
+      
+      get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_lig,mut_folder+"/ligand.Zmat")		
+     
+     
+      # FOR THE COMPLEX
+      
+      
+      compute_interactions(mut_pose,'full.resfile', mut_folder+"/"+mut+'_min.mat')
+      command=["Convertor",mut_folder+"/"+mut+'_min.LG',mut_folder+"/"+mut+'_min.LG']
+      call(command)
+      
+      command=["toulbar2",mut_folder+"/"+mut+'_min.LG']
+      tb2out=check_output(command)
+      tb2out=tb2out.split('\n')
+      for line in tb2out:
+        line_split=line.split()
+        if ("Optimum:" in line_split) and ("Energy:" in line_split):
+            OptEnergy=float(line_split[3])
+        elif ("Optimum:" in line_split) :
+			OptSolution=line_split[1].split('-')
+      OptSolution = [int(i) for i in OptSolution]
+      
+      get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/"+mut+'_min.Zmat')
+      
       exit(1)
       #partners=chain_name[0]+'_'+chain_name[1]
       #sample_docking(mut_pose, partners, 1, 1, jobs, mut_folder+"/"+mut)
