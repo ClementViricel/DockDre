@@ -12,12 +12,14 @@ from Bio.PDB import PDBParser, PDBIO
 
 import rosetta
 from rosetta import *
+from rosetta.protocols.rigid import *
 from rosetta.core.pack.rotamer_set import *
 from rosetta.core.pack.interaction_graph import *
 from rosetta.core.pack import *
 from rosetta.core.scoring import *
 from rosetta.core.graph import *
 from toolbox import *
+import StringIO
 
 one_to_three = {'A': 'ALA',
                 'R': 'ARG',
@@ -41,9 +43,7 @@ one_to_three = {'A': 'ALA',
                 'V': 'VAL',
             }
     
-def rot_trans(pose, partners,
-        translation = 0.2, rotation = 3.0,
-        jobs = 1, out = 'dock_output',flexibles):
+def rot_trans(pose, partners, flexibles,translation = 0.2, rotation = 3.0,jobs = 1, out = 'dock_output'):
  
     starting_p = pose
     dock_jump = 1
@@ -73,11 +73,11 @@ def rot_trans(pose, partners,
       starting_p=jd.native_pose
       perturb.apply(starting_p)
       
-      compute_interactions(starting_p,'full.resfile', out+"_"+counter+".mat")
-      command=["Convertor",out+"_"+counter+".mat",out+"_"+counter+".LG"]
+      compute_interactions(starting_p,'full.resfile', out+"_"+str(counter)+".mat")
+      command=["Convertor",out+"_"+str(counter)+".mat",out+"_"+str(counter)+".LG"]
       call(command)
       
-      command=["toulbar2",out+"_"+counter+".LG"]
+      command=["toulbar2",out+"_"+str(counter)+".LG"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -88,8 +88,8 @@ def rot_trans(pose, partners,
 			OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
       
-      get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"_"+counter+".Zmat")
-      command=["Convertor",out+"_"+counter+".Zmat",out+"_"+counter+".ZLG"]
+      get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"_"+str(counter)+".Zmat")
+      command=["Convertor",out+"_"+str(counter)+".Zmat",out+"_"+str(counter)+".ZLG"]
       call(command)
       
       jd.output_decoy(starting_p)
@@ -149,10 +149,8 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
     ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
     mat=optsolution
-    print len(mat)
     template_energy = optenergy
     for i in range(0, len(flexibles)):
-        print int(mat[flexibles[i]-1]+1)
         template_energy-=ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1))
 #        print str(flexibles[i])+" "+str(ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1)))
 #        print "Removing "+str(ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1)))+" from unary term "+str(flexibles[i])
@@ -247,7 +245,7 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
     flexibles_lig=flexibles_lig.readlines()[0]
     flexibles_lig=[int(i) for i in flexibles_lig.split()]
     
-    flexibles=sorted(flexibles_rec+flexibles_lig)
+    flexibles=sorted(list(set(flexibles_rec+flexibles_lig)))
     
     ## First minimisation (may do fastrelax ?) 
     movemap = MoveMap()
@@ -316,7 +314,8 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
       command=["toulbar2",mut_folder+"/receptor.LG"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
-
+      OptEnergy=0
+      
       for line in tb2out:
         line_split=line.split()
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
@@ -324,10 +323,6 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
         elif ("Optimum:" in line_split) :
 			OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
-      
-      command=["toulbar2",mut_folder+"/receptor.LG"]
-      tb2out=check_output(command)
-      tb2out=tb2out.split('\n')
       
       get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_rec,mut_folder+"/receptor.Zmat")	
       command=["Convertor",mut_folder+"/receptor.Zmat",mut_folder+"/receptor.ZLG"]
@@ -374,7 +369,7 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
       call(command)
       
       partners=chain_name[0]+'_'+chain_name[1]
-      rot_trans(mut_pose, partners, 1, 1, jobs, mut_folder+"/"+mut,flexibles)
+      rot_trans(mut_pose, partners, flexibles, 1, 1, jobs, mut_folder+"/"+mut)
       
   else:
     "ERROR: PDB FILE NOT IN THE FOLDER"
