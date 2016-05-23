@@ -43,7 +43,7 @@ one_to_three = {'A': 'ALA',
                 'V': 'VAL',
             }
     
-def rot_trans(pose, partners, flexibles,translation = 0.2, rotation = 3.0,jobs = 1, out = 'dock_output'):
+def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut):
  
     starting_p = pose
     dock_jump = 1
@@ -66,18 +66,18 @@ def rot_trans(pose, partners, flexibles,translation = 0.2, rotation = 3.0,jobs =
     perturb.add_mover(dock_pert)
     perturb.add_mover(minmover) 
     
-    jd = PyJobDistributor(out, jobs, scorefxn_talaris)
+    jd = PyJobDistributor(out+'/PDB/'+mut, jobs, scorefxn_talaris)
     jd.native_pose = starting_p
     counter=1
     while not jd.job_complete:
       starting_p=jd.native_pose
       perturb.apply(starting_p)
       
-      compute_interactions(starting_p,'full.resfile', out+"_"+str(counter)+".mat")
-      command=["Convertor",out+"_"+str(counter)+".mat",out+"_"+str(counter)+".LG"]
+      compute_interactions(starting_p,'full.resfile', out+"/MAT/"+mut+"_"+str(counter)+".mat")
+      command=["Convertor",out+"/MAT/"+mut+"_"+str(counter)+".mat",out+"/LG/"+mut+"_"+str(counter)+".LG"]
       call(command)
       
-      command=["toulbar2",out+"_"+str(counter)+".LG"]
+      command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -85,11 +85,11 @@ def rot_trans(pose, partners, flexibles,translation = 0.2, rotation = 3.0,jobs =
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
         elif ("Optimum:" in line_split) :
-			OptSolution=line_split[1].split('-')
+            OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
       
-      get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"_"+str(counter)+".Zmat")
-      command=["Convertor",out+"_"+str(counter)+".Zmat",out+"_"+str(counter)+".ZLG"]
+      get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/MAT/"+mut+"_"+str(counter)+".Zmat")
+      command=["Convertor",out+"/MAT/"+mut+"_"+str(counter)+".Zmat",out+"/LG/"+mut+"_"+str(counter)+".ZLG"]
       call(command)
       
       jd.output_decoy(starting_p)
@@ -190,62 +190,36 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     f.write(binary_terms.getvalue())
     binary_terms.close()
     f.close()
-    
-def compare_seq(seq1,seq2):
-  seq_mut=[]
-  if seq1==seq2:
-    return seq_mut
-  else:
-    for i in range(0,len(seq1)-1):
-      if seq1[i] != seq2[i]:
-        seq_mut.append((i,seq2[i]))
-  return seq_mut
 
-def read_from_fasta(sequence_file):
-  sequences={}
-  
-  if os.path.exists( os.getcwd() + '/' + sequence_file ) and sequence_file:
-    seq_file = open(sequence_file,'r')
-    lines = seq_file.readlines()
-    read_seq=False
-    native=(lines[0][1:-1],lines[1][:-1])
-    for line in lines:
-      if line[0] == '>':
-        read_seq=False
-        sequences_name=line[1:-1]
-      elif len(line) != 0:
-        mut_fasta=line[:-1]
-        mutations=compare_seq(native[1],mut_fasta)
-        read_seq=True
-      if read_seq:
-        sequences[sequences_name]=mutations
-    return sequences
-
-def mutation_rot_trans(pdb_file, sequence_file, jobs):
+def mutation_rot_trans(pdb_file, seq_file, jobs):
   if os.path.exists( os.getcwd() + '/' + pdb_file ) and pdb_file:
     init()
     pose=Pose()
     pose=pose_from_pdb(pdb_file)
     input_file_name=os.getcwd() + '/' + pdb_file.split('.pdb')[0]
-    ## create a score function and a scorefile
+
+    ## create a score function
     scorefxn = create_score_function('talaris2014')
-    #score_file_name = input_file_name + "_mut.sc"
-    #score_file = open(score_file_name,'w')
     
     ## parse the fasta sequence file into a dictionary : sequences[#position]=[list of mutation]
     sequences={}
-    sequences=read_from_fasta(sequence_file)
-    
+    sequences[pdb_file.split('.pdb')[0]]=[]
+    if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
+        r = re.compile("([0-9]+)([a-zA-Z]+)")
+        seqfile=open(seq_file,'r')
+        for seq in seqfile.readlines():
+            sequences[seq[:-1]]=[r.match(i).groups() for i in seq.split('_')]
+            
     ## parse the flexible file to get the flexibles residues
     flexibles_rec=open("flexibles.receptor",'r')
     flexibles_rec=flexibles_rec.readlines()[0]
     flexibles_rec=[int(i) for i in flexibles_rec.split()]
     
-    flexibles_lig=open("flexibles.receptor",'r')
+    flexibles_lig=open("flexibles.ligand",'r')
     flexibles_lig=flexibles_lig.readlines()[0]
     flexibles_lig=[int(i) for i in flexibles_lig.split()]
     
-    flexibles=sorted(list(set(flexibles_rec+flexibles_lig)))
+    flexibles=sorted(flexibles_rec+flexibles_lig)
     
     ## First minimisation (may do fastrelax ?) 
     movemap = MoveMap()
@@ -261,8 +235,10 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
     ###### Mutation Loop ####
     for mut in sequences.keys():
       mut_pose=pose
+      print "Processing Mutation:",mut
+      
       for mut_tuple in sequences[mut]:
-        index = mut_tuple[0] + 1
+        index = int(mut_tuple[0]) + 1
         aa = mut_tuple[1]
         mutator=MutateResidue(int(index), one_to_three[aa])
         mutator.apply(mut_pose)
@@ -271,7 +247,16 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
       if not os.path.exists(mut_folder):
         os.mkdir(mut_folder)
         
-      mut_pose.dump_pdb(mut_folder+"/"+mut+'.pdb')
+      if not os.path.exists(mut_folder+'/LG'):
+        os.mkdir(mut_folder+'/LG')
+
+      if not os.path.exists(mut_folder+'/PDB'):
+        os.mkdir(mut_folder+'/PDB')
+        
+      if not os.path.exists(mut_folder+'/MAT'):
+        os.mkdir(mut_folder+'/MAT')
+        
+      mut_pose.dump_pdb(mut_folder+"/PDB/"+mut+'.pdb')
 
       #~ pose_packer = standard_packer_task(mut_pose)
       #~ pose_packer.restrict_to_repacking()
@@ -280,38 +265,36 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
         
       ## Minimization on the mutant pose. Useless ?
       minmover.apply(mut_pose)
-      mut_pose.dump_pdb(mut_folder+"/"+mut+'_min.pdb')
+      mut_pose.dump_pdb(mut_folder+"/PDB/"+mut+'_min.pdb')
 
       io = PDBIO()
-      pdb = PDBParser().get_structure(mut, mut_folder+"/"+mut+"_min.pdb")
+      pdb = PDBParser().get_structure(mut, mut_folder+"/PDB/"+mut+"_min.pdb")
       chain_name=[]
+      chain_length=[]
       for chain in pdb.get_chains():
         io.set_structure(chain)
-        io.save(mut_folder+'/'+pdb.get_id() + "_" + chain.get_id() + ".pdb")
+        io.save(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain.get_id() + ".pdb")
+        chain_length.append(len(chain))
         chain_name.append(chain.get_id())
       
       ## Separate the two chains ex: E_I or A_B. Need to rename if more than two chains ?
       pose_prot_1=Pose()
       pose_prot_2=Pose()
-      pose_prot_1=pose_from_pdb(mut_folder+'/'+pdb.get_id() + "_" + chain_name[0] + ".pdb")
-      pose_prot_2=pose_from_pdb(mut_folder+'/'+pdb.get_id() + "_" + chain_name[1] + ".pdb")
+      pose_prot_1=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[0] + ".pdb")
+      pose_prot_2=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[1] + ".pdb")
       #repack a faire ???? 
       
       ## Minimise the lonely partners
       minmover.apply(pose_prot_1)
       minmover.apply(pose_prot_2)
       
-      ## Write the total score of the mutant complex, partner 1 and partner2
-      #command=str(mut+' '+str(scorefxn(mut_pose))+' '+str(scorefxn(pose_prot_1))+' '+str(scorefxn(pose_prot_2))+'\n')
-      #score_file.write(command)
-      
       ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy and compute Z matrix.
       ##### FOR THE RECEPTOR
-      compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/receptor.mat')
-      command=["Convertor",mut_folder+'/receptor.mat',mut_folder+'/receptor.LG']
+      compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/MAT/receptor.mat')
+      command=["Convertor",mut_folder+'/MAT/receptor.mat',mut_folder+'/LG/receptor.LG']
       call(command)
       
-      command=["toulbar2",mut_folder+"/receptor.LG"]
+      command=["toulbar2",mut_folder+"/LG/receptor.LG"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       OptEnergy=0
@@ -321,19 +304,20 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
         elif ("Optimum:" in line_split) :
-			OptSolution=line_split[1].split('-')
+            OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
       
-      get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_rec,mut_folder+"/receptor.Zmat")	
-      command=["Convertor",mut_folder+"/receptor.Zmat",mut_folder+"/receptor.ZLG"]
+      get_Z_matrix(pose_prot_1, OptSolution, OptEnergy, "full.resfile", flexibles_rec, mut_folder+"/MAT/receptor.Zmat")	
+      command=["Convertor",mut_folder+"/MAT/receptor.Zmat",mut_folder+"/LG/receptor.ZLG"]
       call(command)
       
       ##### FOR THE LIGAND
-      compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/ligand.mat')
-      command=["Convertor",mut_folder+"/ligand.mat",mut_folder+"/ligand.LG"]
+      flexibles_lig_renum=[i-int(chain_length[0]) for i in flexibles_lig]
+      compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/MAT/ligand.mat')
+      command=["Convertor",mut_folder+"/MAT/ligand.mat",mut_folder+"/LG/ligand.LG"]
       call(command)
       
-      command=["toulbar2",mut_folder+"/receptor.LG"]
+      command=["toulbar2",mut_folder+"/LG/ligand.LG"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -341,19 +325,19 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
         elif ("Optimum:" in line_split) :
-			OptSolution=line_split[1].split('-')
+            OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
       
-      get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles_lig,mut_folder+"/ligand.Zmat")		
-      command=["Convertor",mut_folder+"/ligand.Zmat",mut_folder+"/ligand.ZLG"]
+      get_Z_matrix(pose_prot_2,OptSolution,OptEnergy,"full.resfile",flexibles_lig_renum,mut_folder+"/MAT/ligand.Zmat")		
+      command=["Convertor",mut_folder+"/MAT/ligand.Zmat",mut_folder+"/LG/ligand.ZLG"]
       call(command)
      
       # FOR THE COMPLEX
-      compute_interactions(mut_pose,'full.resfile', mut_folder+"/"+mut+'_min.mat')
-      command=["Convertor",mut_folder+"/"+mut+'_min.mat',mut_folder+"/"+mut+'_min.LG']
+      compute_interactions(mut_pose,'full.resfile', mut_folder+"/MAT/"+mut+'_min.mat')
+      command=["Convertor",mut_folder+"/MAT/"+mut+'_min.mat',mut_folder+"/LG/"+mut+'_min.LG']
       call(command)
       
-      command=["toulbar2",mut_folder+"/"+mut+'_min.LG']
+      command=["toulbar2",mut_folder+"/LG/"+mut+'_min.LG']
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -361,18 +345,19 @@ def mutation_rot_trans(pdb_file, sequence_file, jobs):
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
         elif ("Optimum:" in line_split) :
-			OptSolution=line_split[1].split('-')
+            OptSolution=line_split[1].split('-')
       OptSolution = [int(i) for i in OptSolution]
       
-      get_Z_matrix(pose_prot_1,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/"+mut+'_min.Zmat')
-      command=["Convertor",mut_folder+"/"+mut+'_min.Zmat',mut_folder+"/"+mut+'_min.ZLG']
+      get_Z_matrix(mut_pose,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/MAT/"+mut+'_min.Zmat')
+      command=["Convertor",mut_folder+"/MAT/"+mut+'_min.Zmat',mut_folder+"/LG/"+mut+'_min.ZLG']
       call(command)
       
       partners=chain_name[0]+'_'+chain_name[1]
-      rot_trans(mut_pose, partners, flexibles, 1, 1, jobs, mut_folder+"/"+mut)
-      
+      rot_trans(mut_pose, partners, flexibles, 1, 3, jobs, mut_folder,mut)
+
+      print "Finish Processing Mutation:",mut
   else:
-    "ERROR: PDB FILE NOT IN THE FOLDER"
+    "ERROR: PDB FILE NOT EXISTING"
 
         
 
