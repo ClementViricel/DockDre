@@ -95,7 +95,7 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut,
     
     
     interface = Interface(1)
-    interface.distance(5.0)
+    interface.distance(10.0)
     interface.calculate(pose)
     contact = interface.contact_list()
     centroid_muts=[] ## array for the mutables centroids
@@ -118,8 +118,8 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut,
     
     #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
     
-    rot_plus=RigidBodyDeterministicSpinMover()
-    rot_plus.spin_axis(axis)
+    rot_pert=RigidBodyDeterministicSpinMover()
+    rot_pert.spin_axis(axis)
     
     movemap = MoveMap()
     movemap.set_jump(1, True)
@@ -156,17 +156,17 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut,
     ## Translation ==> [-Delta, Detla] toutes les delta step
     ## Nombre de job en fonction ? ou faire une boucle directement sur le nombre de rotation translation (plus facile)?
     
-    Teta=np.range(-rotation*2,rotation*2,0.4)
-    Delta=np.range(-translation*2,translation*2,0.4)
+    Teta=np.arange(-rotation,rotation,0.4)
+    Delta=np.arange(-translation,translation,0.4)
     pose = Pose()
     for delta in Delta:
       trans_pert.step_size(delta) # Set the translation size
       for teta in Teta:
         pose.assign(starting_p) # Reload the initial pose
-        rot_plus.angle_magnitude(rotation) # Set the translation angle
+        rot_pert.angle_magnitude(rotation) # Set the translation angle
         trans_pert.apply(pose)
         rot_pert.apply(pose)
-        pose.dump_pdb(out+'/PDB/'+mut+'_'+str(counter)+pdb)
+        pose.dump_pdb(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
         counter += 1
       
     #~ while not jd.job_complete:
