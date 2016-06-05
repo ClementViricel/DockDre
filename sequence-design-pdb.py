@@ -5,6 +5,7 @@ import optparse
 import re
 import subprocess
 from subprocess import *
+import numpy as np
 
 import Bio
 from Bio import *
@@ -112,21 +113,13 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut)
     axis=rosetta.numeric.xyzVector_Real()
     axis.assign(X_axis[0],X_axis[1],X_axis[2])
     
-    trans_plus = RigidBodyTransMover(starting_p,dock_jump)
-    trans_plus.trans_axis(axis)
-    trans_plus.step_size(translation)
+    trans_pert = RigidBodyTransMover(starting_p,dock_jump)
+    trans_pert.trans_axis(axis)
+    
     #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
-    trans_less = RigidBodyTransMover(starting_p,dock_jump)
-    trans_less.trans_axis(axis)
-    trans_less.step_size(-translation)
     
     rot_plus=RigidBodyDeterministicSpinMover()
-    rot_plus.angle_magnitude(rotation)
     rot_plus.spin_axis(axis)
-    
-    rot_less=RigidBodyDeterministicSpinMover()
-    rot_less.angle_magnitude(-rotation)
-    rot_less.spin_axis(axis)
     
     movemap = MoveMap()
     movemap.set_jump(1, True)
@@ -158,28 +151,46 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut)
     jd = PyJobDistributor(out+'/PDB/'+mut, jobs, scorefxn_talaris)
     jd.native_pose = starting_p
     counter=1
-    while not jd.job_complete:
-      starting_p.assign(jd.native_pose)
-      perturb.apply(starting_p)
+    ## REGARDER LA BOUCLE A FAIRE
+    ## ROTATION ==> [-Teta,Teta] toutes les teta step
+    ## Translation ==> [-Delta, Detla] toutes les delta step
+    ## Nombre de job en fonction ? ou faire une boucle directement sur le nombre de rotation translation (plus facile)?
+    
+    Teta=np.range(-rotation*2,rotation*2,0.4)
+    Delta=np.range(-translation*2,translation*2,0.4)
+    pose = Pose()
+    for delta in Delta:
+      trans_pert.step_size(delta) # Set the translation size
+      for teta in Teta:
+        pose.assign(starting_p) # Reload the initial pose
+        rot_plus.angle_magnitude(rotation) # Set the translation angle
+        trans_pert.apply(pose)
+        rot_pert.apply(pose)
+        pose.dump_pdb(out+'/PDB/'+mut+'_'+str(counter)+pdb)
+        counter += 1
       
-      compute_interactions(starting_p,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG")
-      
-      command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"]
-      tb2out=check_output(command)
-      tb2out=tb2out.split('\n')
-      for line in tb2out:
-        line_split=line.split()
-        if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            OptEnergy=float(line_split[3])
-        elif ("Optimum:" in line_split) :
-            OptSolution=line_split[1].split('-')
-      OptSolution = [int(i) for i in OptSolution]
-      
-      get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG")
-                
-      
-      jd.output_decoy(starting_p)
-      counter += 1
+    #~ while not jd.job_complete:
+      #~ starting_p.assign(jd.native_pose)
+      #~ perturb.apply(starting_p)
+      #~ 
+      #~ compute_interactions(starting_p,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG")
+      #~ 
+      #~ command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"]
+      #~ tb2out=check_output(command)
+      #~ tb2out=tb2out.split('\n')
+      #~ for line in tb2out:
+        #~ line_split=line.split()
+        #~ if ("Optimum:" in line_split) and ("Energy:" in line_split):
+            #~ OptEnergy=float(line_split[3])
+        #~ elif ("Optimum:" in line_split) :
+            #~ OptSolution=line_split[1].split('-')
+      #~ OptSolution = [int(i) for i in OptSolution]
+      #~ 
+      #~ get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG")
+                #~ 
+      #~ 
+      #~ jd.output_decoy(starting_p)
+      #~ counter += 1
 
 def compute_interactions(pose, resfile, out):
     score_fxn = create_score_function('talaris2014')
