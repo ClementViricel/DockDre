@@ -389,7 +389,7 @@ def mutation_rot_trans(pdb_file, seq_file, jobs):
       for mut_tuple in sequences[mut]:
         index = int(mut_tuple[0])
         aa = mut_tuple[1]
-        resmuts.append(aa)
+        resmuts.append(index)
         mutator=MutateResidue(int(index), one_to_three[aa])
         mutator.apply(mut_pose)
         
