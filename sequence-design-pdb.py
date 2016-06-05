@@ -82,7 +82,7 @@ def centroid(points):
     
 
 
-def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut):
+def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut, resmuts):
 
     starting_p = Pose()
     starting_p.assign(pose)
@@ -385,11 +385,11 @@ def mutation_rot_trans(pdb_file, seq_file, jobs):
       mut_pose=Pose()
       mut_pose.assign(pose)
       print "Processing Mutation:",mut
-      resnames=[]
+      resmuts=[]
       for mut_tuple in sequences[mut]:
         index = int(mut_tuple[0])
         aa = mut_tuple[1]
-      
+        resmuts.append(aa)
         mutator=MutateResidue(int(index), one_to_three[aa])
         mutator.apply(mut_pose)
         
@@ -479,7 +479,7 @@ def mutation_rot_trans(pdb_file, seq_file, jobs):
       get_Z_matrix(mut_pose,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/ZLG/"+mut+'_min.LG')
       
       partners=chain_name[0]+'_'+chain_name[1]
-      rot_trans(mut_pose, partners, flexibles, 1, 3, jobs, mut_folder,mut)
+      rot_trans(mut_pose, partners, flexibles, 1, 3, jobs, mut_folder,mut,resmuts)
     
       print "Finish Processing Mutation:",mut
   else:
