@@ -81,8 +81,9 @@ def centroid(points):
     centroid_z = sum(z_coords)/_len
     return [centroid_x, centroid_y,centroid_z]
     
-def trans_to_origin(structure,center):
- 
+def trans_to_origin(pdb,center):
+  parser = PDBParser()
+  structure = parser.get_structure('PDB', pdb)
   chain_list = Selection.unfold_entities(structure, 'C')
   
   for atom in structure.get_atoms():
@@ -91,8 +92,8 @@ def trans_to_origin(structure,center):
     
   return structure
     
-def rotation(pdb, axis, center, angle):
-  structure = parser.get_structure('PDB', pdb)
+def rotation_atom(structure, axis, center, angle):
+
   rot = rotaxis(angle ,axis)
   structure=trans_to_origin(structure,center)
   chain_list = Selection.unfold_entities(structure, 'C')
@@ -114,46 +115,31 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     scorefxn_talaris = create_score_function('talaris2014')
     scorefxn_talaris(starting_p)
     
-    
+    ## Compute the interface
     interface = Interface(1)
     interface.distance(10.0)
     interface.calculate(pose)
     contact = interface.contact_list()
     interface_residue = interface.pair_list()
-    centroid_muts=[] ## array for the mutables centroids
-    centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
     centroid_interface=[]
     for interface in interface_residue:
       centroid_interface.append(centroid([pose.residue(res).xyz('CA') for res in interface]))
-    
     interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
+    center=centroid_interface[0]
     
-    #~ if len(resmuts) != 0 :
-      #~ for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
-        #~ centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
-        #~ centroid_muts.append(pose.residue(int(res)).xyz("CA"))
-      #~ centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
-      #~ centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
-      #~ X_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
-      #~ center=centroid_muts
-    #~ 
-    ### Define the translation axis by taking the axis between
-    ### the centroid of flexibles and the centroid of mutable ?
-    axis=rosetta.numeric.xyzVector_Real()
-    #axis.assign(X_axis[0],X_axis[1],X_axis[2])
-    axis.assign(interface_axis[0],interface_axis[1],interface_axis[2])
-    center=rosetta.numeric.xyzVector_Real()
-    center.assign(center[0],center[1],center[2])
+    ## If there is mutation. The axis change by moving to the centroid of mutable residue.
+    if len(resmuts) != 0 :
+      centroid_muts=[] ## array for the mutables centroids
+      centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
+      for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
+        centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
+        centroid_muts.append(pose.residue(int(res)).xyz("CA"))
+      centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
+      centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
+      interface_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
+      center=centroid_muts
     
-    trans_pert = RigidBodyTransMover(starting_p,dock_jump)
-    trans_pert.trans_axis(axis)
-    
-    #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
-    
-    rot_pert=RigidBodyDeterministicSpinMover()
-    rot_pert.spin_axis(axis)
-    rot_pert.rot_center(center)    
-
+    ## Minization after mutation and before trans/rot
     movemap = MoveMap()
     movemap.set_jump(1, True)
     movemap.set_bb(True)
@@ -161,7 +147,6 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     tolerance = 0.01
     min_type = "dfpmin"
     minmover = MinMover(movemap, scorefxn_talaris, min_type, tolerance, True) 
-    
     
     minmover.apply(starting_p)
     starting_p.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
@@ -179,51 +164,73 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
             OptSolution=line_split[1].split('-')
             OptSolution = [int(i) for i in OptSolution]
     get_Z_matrix(starting_p,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
-                                                                           
     
-    jd = PyJobDistributor(out+'/PDB/'+mut, jobs, scorefxn_talaris)
-    jd.native_pose = starting_p
-    counter=1
-    ## REGARDER LA BOUCLE A FAIRE
-    ## ROTATION ==> [-Teta,Teta] toutes les teta step
-    ## Translation ==> [-Delta, Detla] toutes les delta step
-    ## Nombre de job en fonction ? ou faire une boucle directement sur le nombre de rotation translation (plus facile)?
+    if not is_rosetta:
+      io = PDBIO()
+      structure=trans_to_origin(out+"/PDB/"+mut+"_min.pdb",center) ## Translate the complex to have the center of rotation on origin.
+      Teta=np.arange(-rotation,rotation,rot_step)
+      Delta=np.arange(-translation,translation,trans_step)
+      counter=1
+      for delta in Delta: ## loop for trans
+        for teta in Teta: ## loop for rot
+          structure_copy=structure.copy()
+          rotation=rotaxis(np.pi/180*teta, axis) ## rotation matrice
+          translation=np.array((0, 0, 0), 'f') ## translation matrice ????
+          chain_list = Selection.unfold_entities(structure_copy, 'C')
+          chain_list[1].transform(rotation, translation)
+          io.set_structure(structure_copy)
+          io.save('out_'+str(counter)+'.pdb')
+          counter += 1
+          
+    else:                                                                       
+      ### Define the translation axis by taking the axis between
+      ### the centroid of flexibles and the centroid of mutable ?
+      axis=rosetta.numeric.xyzVector_Real()
+      axis.assign(interface_axis[0],interface_axis[1],interface_axis[2])
+      center=rosetta.numeric.xyzVector_Real()
+      center.assign(center[0],center[1],center[2])
     
-    Teta=np.arange(-rotation,rotation,rot_step)
-    Delta=np.arange(-translation,translation,trans_step)
-    pose = Pose()
-    for delta in Delta:
-      trans_pert.step_size(delta) # Set the translation size
-      for teta in Teta:
-        pose.assign(starting_p) # Reload the initial pose
-        rot_pert.angle_magnitude(rotation) # Set the translation angle
-        trans_pert.apply(pose)
-        rot_pert.apply(pose)
-        pose.dump_pdb(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
-        counter += 1
-      
-    #~ while not jd.job_complete:
-      #~ starting_p.assign(jd.native_pose)
-      #~ perturb.apply(starting_p)
-      #~ 
-      #~ compute_interactions(starting_p,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG")
-      #~ 
-      #~ command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"]
-      #~ tb2out=check_output(command)
-      #~ tb2out=tb2out.split('\n')
-      #~ for line in tb2out:
-        #~ line_split=line.split()
-        #~ if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            #~ OptEnergy=float(line_split[3])
-        #~ elif ("Optimum:" in line_split) :
-            #~ OptSolution=line_split[1].split('-')
-      #~ OptSolution = [int(i) for i in OptSolution]
-      #~ 
-      #~ get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG")
-                #~ 
-      #~ 
-      #~ jd.output_decoy(starting_p)
-      #~ counter += 1
+      trans_pert = RigidBodyTransMover(starting_p,dock_jump)
+      trans_pert.trans_axis(axis)
+    
+    #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
+    
+      rot_pert=RigidBodyDeterministicSpinMover()
+      rot_pert.spin_axis(axis)
+      rot_pert.rot_center(center)  
+    
+      jd = PyJobDistributor(out+'/PDB/'+mut, jobs, scorefxn_talaris)
+      jd.native_pose = starting_p
+      counter=1
+      ## REGARDER LA BOUCLE A FAIRE
+      ## ROTATION ==> [-Teta,Teta] toutes les teta step
+      ## Translation ==> [-Delta, Detla] toutes les delta step
+      ## Nombre de job en fonction ? ou faire une boucle directement sur le nombre de rotation translation (plus facile)?
+    
+      Teta=np.arange(-rotation,rotation,rot_step)
+      Delta=np.arange(-translation,translation,trans_step)
+      pose = Pose()
+      for delta in Delta:
+        trans_pert.step_size(delta) # Set the translation size
+        for teta in Teta:
+          pose.assign(starting_p) # Reload the initial pose
+          rot_pert.angle_magnitude(rotation) # Set the translation angle
+          trans_pert.apply(pose) ## translate
+          rot_pert.apply(pose) ## rotate
+          pose.dump_pdb(out+'/PDB/'+mut+'_'+str(counter)+".pdb") ## produce the pdb
+          compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
+          command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"] # FSCP
+          tb2out=check_output(command)
+          tb2out=tb2out.split('\n')
+          for line in tb2out:
+            line_split=line.split()
+            if ("Optimum:" in line_split) and ("Energy:" in line_split):
+              OptEnergy=float(line_split[3])
+            elif ("Optimum:" in line_split) :
+              OptSolution=line_split[1].split('-')
+          OptSolution = [int(i) for i in OptSolution]
+          get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
+          counter += 1
 
 def compute_interactions(pose, resfile, out):
     score_fxn = create_score_function('talaris2014')
@@ -512,7 +519,7 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       get_Z_matrix(mut_pose,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/ZLG/"+mut+'_min.LG')
       
       partners=chain_name[0]+'_'+chain_name[1]
-      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts)
+      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts,is_rosetta)
     
       print "Finish Processing Mutation:",mut
   else:
@@ -546,7 +553,7 @@ parser.add_option( '--rot_step', dest='rotation_step' ,
     help = 'the size of rotation segment')
     
 parser.add_option( '--rosetta', dest='is_rosetta' ,
-    default = '0',   
+    default = 'True',   
     help = 'use Rosetta for rotation/translation step (default 0)')
     
 (options,args) = parser.parse_args()
