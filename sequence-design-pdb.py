@@ -81,14 +81,21 @@ def centroid(points):
     centroid_z = sum(z_coords)/_len
     return [centroid_x, centroid_y,centroid_z]
     
-def trans_to_origin(pdb,center):
+def trans_and_rot_to_origin(pdb,center,axis):
   parser = PDBParser()
   structure = parser.get_structure('PDB', pdb)
   chain_list = Selection.unfold_entities(structure, 'C')
+  r = rotmat(axis,Vector(0,0,1))
   
   for atom in structure.get_atoms():
     coord=atom.get_coord()
     atom.set_coord(map(sub,coord,coord_origin))
+    
+  for atom in structure.get_atoms():
+    coord=atom.get_vector()
+    new_coord=coord.left_multiply(r)
+    new_coord=[i for i in new_coord]
+    atom.set_coord(new_coord)
     
   return structure
     
@@ -167,19 +174,32 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     
     if not is_rosetta:
       io = PDBIO()
-      structure=trans_to_origin(out+"/PDB/"+mut+"_min.pdb",center) ## Translate the complex to have the center of rotation on origin.
+      structure=trans_and_rot_to_origin(out+"/PDB/"+mut+"_min.pdb", center, interface_axis) ## Translate the complex to have the center of rotation on origin.
       Teta=np.arange(-rotation,rotation,rot_step)
       Delta=np.arange(-translation,translation,trans_step)
       counter=1
       for delta in Delta: ## loop for trans
         for teta in Teta: ## loop for rot
           structure_copy=structure.copy()
-          rotation=rotaxis(np.pi/180*teta, axis) ## rotation matrice
-          translation=np.array((0, 0, 0), 'f') ## translation matrice ????
+          rotation=rotaxis(np.pi/180*teta, Vector(0,0,1)) ## rotation matrice
+          translation=np.array((0, 0, delta), 'f') ## translation matrice ????
           chain_list = Selection.unfold_entities(structure_copy, 'C')
           chain_list[1].transform(rotation, translation)
           io.set_structure(structure_copy)
-          io.save('out_'+str(counter)+'.pdb')
+          io.save(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
+          pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
+          compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
+          command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"] # FSCP
+          tb2out=check_output(command)
+          tb2out=tb2out.split('\n')
+          for line in tb2out:
+            line_split=line.split()
+            if ("Optimum:" in line_split) and ("Energy:" in line_split):
+              OptEnergy=float(line_split[3])
+            elif ("Optimum:" in line_split) :
+              OptSolution=line_split[1].split('-')
+          OptSolution = [int(i) for i in OptSolution]
+          get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
           
     else:                                                                       
