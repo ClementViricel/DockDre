@@ -6,6 +6,7 @@ import re
 import subprocess
 from subprocess import *
 import numpy as np
+from operator import sub
 
 import Bio
 from Bio import *
@@ -80,9 +81,29 @@ def centroid(points):
     centroid_z = sum(z_coords)/_len
     return [centroid_x, centroid_y,centroid_z]
     
+def trans_to_origin(structure,center):
+ 
+  chain_list = Selection.unfold_entities(structure, 'C')
+  
+  for atom in structure.get_atoms():
+    coord=atom.get_coord()
+    atom.set_coord(map(sub,coord,coord_origin))
+    
+  return structure
+    
+def rotation(pdb, axis, center, angle):
+  structure = parser.get_structure('PDB', pdb)
+  rot = rotaxis(angle ,axis)
+  structure=trans_to_origin(structure,center)
+  chain_list = Selection.unfold_entities(structure, 'C')
+  for atom in chain_list[1].get_atoms():
+    vect=atom.get_vector()
+    vect_rot= vect.left_multiply(rot)
+    coord_rot=[i for i in vect_rot]
+    atom.set_coord(coord_rot)
+  return structure
 
-
-def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut, resmuts):
+def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts, is_rosetta):
 
     starting_p = Pose()
     starting_p.assign(pose)
@@ -98,20 +119,31 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut,
     interface.distance(10.0)
     interface.calculate(pose)
     contact = interface.contact_list()
+    interface_residue = interface.pair_list()
     centroid_muts=[] ## array for the mutables centroids
     centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
-    for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
-      centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
-      centroid_muts.append(pose.residue(int(res)).xyz("CA"))
-    centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
-    centroid_muts=centroid(centroid_muts) ## calculate the centroid of mutables
-    X_axis = [centroid_flex[0]-centroid_muts[0],centroid_flex[1]-centroid_muts[1],centroid_flex[2]-centroid_muts[2]] ## Calculate the axis 
-
+    centroid_interface=[]
+    for interface in interface_residue:
+      centroid_interface.append(centroid([pose.residue(res).xyz('CA') for res in interface]))
     
+    interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
+    
+    #~ if len(resmuts) != 0 :
+      #~ for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
+        #~ centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
+        #~ centroid_muts.append(pose.residue(int(res)).xyz("CA"))
+      #~ centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
+      #~ centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
+      #~ X_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
+      #~ center=centroid_muts
+    #~ 
     ### Define the translation axis by taking the axis between
     ### the centroid of flexibles and the centroid of mutable ?
     axis=rosetta.numeric.xyzVector_Real()
-    axis.assign(X_axis[0],X_axis[1],X_axis[2])
+    #axis.assign(X_axis[0],X_axis[1],X_axis[2])
+    axis.assign(interface_axis[0],interface_axis[1],interface_axis[2])
+    center=rosetta.numeric.xyzVector_Real()
+    center.assign(center[0],center[1],center[2])
     
     trans_pert = RigidBodyTransMover(starting_p,dock_jump)
     trans_pert.trans_axis(axis)
@@ -120,7 +152,8 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut,
     
     rot_pert=RigidBodyDeterministicSpinMover()
     rot_pert.spin_axis(axis)
-    
+    rot_pert.rot_center(center)    
+
     movemap = MoveMap()
     movemap.set_jump(1, True)
     movemap.set_bb(True)
@@ -156,8 +189,8 @@ def rot_trans(pose, partners, flexibles, translation, rotation , jobs, out, mut,
     ## Translation ==> [-Delta, Detla] toutes les delta step
     ## Nombre de job en fonction ? ou faire une boucle directement sur le nombre de rotation translation (plus facile)?
     
-    Teta=np.arange(-rotation,rotation,0.4)
-    Delta=np.arange(-translation,translation,0.4)
+    Teta=np.arange(-rotation,rotation,rot_step)
+    Delta=np.arange(-translation,translation,trans_step)
     pose = Pose()
     for delta in Delta:
       trans_pert.step_size(delta) # Set the translation size
@@ -339,7 +372,7 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     g.close()
 
 
-def mutation_rot_trans(pdb_file, seq_file, jobs):
+def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta):
   if os.path.exists( os.getcwd() + '/' + pdb_file ) and pdb_file:
     init()
     pose=Pose()
@@ -479,7 +512,7 @@ def mutation_rot_trans(pdb_file, seq_file, jobs):
       get_Z_matrix(mut_pose,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/ZLG/"+mut+'_min.LG')
       
       partners=chain_name[0]+'_'+chain_name[1]
-      rot_trans(mut_pose, partners, flexibles, 1, 3, jobs, mut_folder,mut,resmuts)
+      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts)
     
       print "Finish Processing Mutation:",mut
   else:
@@ -496,21 +529,38 @@ parser.add_option('--seq', dest = 'seq_file',
     default = '',    
     help = 'the sequences to map' )
 
-parser.add_option( '--jobs', dest='jobs' ,
-    default = '1',    # default to single trajectory for speed
-    help = 'the number of jobs (trajectories) to perform')
+parser.add_option( '--trans', dest='translation_size' ,
+    default = '1',    
+    help = 'the size of translation segment')
+  
+parser.add_option( '--rot', dest='rotation_size' ,
+    default = '3',   
+    help = 'the size of rotation segment')
     
+parser.add_option( '--trans_step', dest='translation_step' ,
+    default = '0.4',   
+    help = 'the size of rotation segment')
     
-(options,args) = parser.parse_args()
-
+parser.add_option( '--rot_step', dest='rotation_step' ,
+    default = '1',   
+    help = 'the size of rotation segment')
+    
+parser.add_option( '--rosetta', dest='is_rosetta' ,
+    default = '0',   
+    help = 'use Rosetta for rotation/translation step (default 0)')
+    
 (options,args) = parser.parse_args()
 
 pdb_file=options.pdb_file
 sequence_file = options.seq_file
-jobs = int(options.jobs)
+translation_size=options.translation_size
+rotation_size=options.rotation_size
+translation_step=options.translation_step
+rotation_step=options.rotation_step
+is_rosetta = options.is_rosetta
 
 
 ################# MUTATION, PDB and MATRIX PRODUCTION #############
         
-mutation_rot_trans(pdb_file,sequence_file, jobs)
+mutation_rot_trans(pdb_file, sequence_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta)
 
