@@ -213,19 +213,12 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
       trans_pert = RigidBodyTransMover(starting_p,dock_jump)
       trans_pert.trans_axis(axis)
     
-    #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
+      #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
     
       rot_pert=RigidBodyDeterministicSpinMover()
       rot_pert.spin_axis(axis)
       rot_pert.rot_center(center)  
-    
-      jd = PyJobDistributor(out+'/PDB/'+mut, jobs, scorefxn_talaris)
-      jd.native_pose = starting_p
       counter=1
-      ## REGARDER LA BOUCLE A FAIRE
-      ## ROTATION ==> [-Teta,Teta] toutes les teta step
-      ## Translation ==> [-Delta, Detla] toutes les delta step
-      ## Nombre de job en fonction ? ou faire une boucle directement sur le nombre de rotation translation (plus facile)?
     
       Teta=np.arange(-rotation,rotation,rot_step)
       Delta=np.arange(-translation,translation,trans_step)
@@ -550,31 +543,31 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
 parser=optparse.OptionParser()
 parser.add_option('--pdb', dest = 'pdb_file',
     default = '',    
-    help = 'the backbone in PDB format' )
+    help = 'Protein comple in PDB format' )
 
 parser.add_option('--seq', dest = 'seq_file',
     default = '',    
-    help = 'the sequences to map' )
+    help = 'Sequences to map' )
 
 parser.add_option( '--trans', dest='translation_size' ,
     default = '1',    
-    help = 'the size of translation segment')
+    help = 'Size of translation segment')
   
 parser.add_option( '--rot', dest='rotation_size' ,
     default = '3',   
-    help = 'the size of rotation segment')
+    help = 'Size of rotation segment')
     
 parser.add_option( '--trans_step', dest='translation_step' ,
     default = '0.4',   
-    help = 'the size of rotation segment')
+    help = 'Size of translation steps')
     
 parser.add_option( '--rot_step', dest='rotation_step' ,
     default = '1',   
-    help = 'the size of rotation segment')
+    help = 'Size of rotation steps')
     
 parser.add_option( '--rosetta', dest='is_rosetta' ,
     default = 'True',   
-    help = 'use Rosetta for rotation/translation step (default 0)')
+    help = 'Use Rosetta for rotation/translation step (default 0)')
     
 (options,args) = parser.parse_args()
 
