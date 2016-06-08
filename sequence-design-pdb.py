@@ -10,7 +10,7 @@ from operator import sub
 
 import Bio
 from Bio import *
-from Bio.PDB import PDBParser, PDBIO
+from Bio.PDB import *
 
 import rosetta
 from rosetta import *
@@ -85,11 +85,13 @@ def trans_and_rot_to_origin(pdb,center,axis):
   parser = PDBParser()
   structure = parser.get_structure('PDB', pdb)
   chain_list = Selection.unfold_entities(structure, 'C')
+  axis=Vector(axis[0],axis[1],axis[2])
+  
   r = rotmat(axis,Vector(0,0,1))
   
   for atom in structure.get_atoms():
     coord=atom.get_coord()
-    atom.set_coord(map(sub,coord,coord_origin))
+    atom.set_coord(map(sub,coord,center))
     
   for atom in structure.get_atoms():
     coord=atom.get_vector()
@@ -133,9 +135,9 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
       centroid_interface.append(centroid([pose.residue(res).xyz('CA') for res in interface]))
     interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
     center=centroid_interface[0]
-    
+    print resmuts
     ## If there is mutation. The axis change by moving to the centroid of mutable residue.
-    if len(resmuts) != 0 :
+    if (len(resmuts) != 0 and len(interface_residue[1])!=0 and len(interface_residue[2])!=0 ) :
       centroid_muts=[] ## array for the mutables centroids
       centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
       for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
@@ -144,8 +146,7 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
       centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
       centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
       interface_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
-      center=centroid_muts
-    
+      center=centroid_mut
     ## Minization after mutation and before trans/rot
     movemap = MoveMap()
     movemap.set_jump(1, True)
@@ -172,9 +173,10 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
             OptSolution = [int(i) for i in OptSolution]
     get_Z_matrix(starting_p,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
     
-    if not is_rosetta:
+    if not (is_rosetta):
       io = PDBIO()
-      structure=trans_and_rot_to_origin(out+"/PDB/"+mut+"_min.pdb", center, interface_axis) ## Translate the complex to have the center of rotation on origin.
+      print center
+      structure=trans_and_rot_to_origin(out+"/PDB/"+mut+"_min.pdb", center, interface_axis) ## Translate the complex to have the center of rotation on origin
       Teta=np.arange(-rotation,rotation,rot_step)
       Delta=np.arange(-translation,translation,trans_step)
       counter=1
@@ -202,7 +204,7 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
           get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
           
-    else:                                                                       
+    elif (is_rosetta):                                                                       
       ### Define the translation axis by taking the axis between
       ### the centroid of flexibles and the centroid of mutable ?
       axis=rosetta.numeric.xyzVector_Real()
@@ -550,23 +552,23 @@ parser.add_option('--seq', dest = 'seq_file',
     help = 'Sequences to map' )
 
 parser.add_option( '--trans', dest='translation_size' ,
-    default = '1',    
+    default = 1.0,    
     help = 'Size of translation segment')
   
 parser.add_option( '--rot', dest='rotation_size' ,
-    default = '3',   
+    default = 3.0,   
     help = 'Size of rotation segment')
     
 parser.add_option( '--trans_step', dest='translation_step' ,
-    default = '0.4',   
+    default = 0.4,   
     help = 'Size of translation steps')
     
 parser.add_option( '--rot_step', dest='rotation_step' ,
-    default = '1',   
+    default = 2.0,   
     help = 'Size of rotation steps')
     
 parser.add_option( '--rosetta', dest='is_rosetta' ,
-    default = 'True',   
+    default = False,   
     help = 'Use Rosetta for rotation/translation step (default 0)')
     
 (options,args) = parser.parse_args()
@@ -581,6 +583,5 @@ is_rosetta = options.is_rosetta
 
 
 ################# MUTATION, PDB and MATRIX PRODUCTION #############
-        
-mutation_rot_trans(pdb_file, sequence_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta)
 
+mutation_rot_trans(pdb_file, sequence_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta)
