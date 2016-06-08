@@ -80,7 +80,8 @@ def centroid(points):
     centroid_y = sum(y_coords)/_len
     centroid_z = sum(z_coords)/_len
     return [centroid_x, centroid_y,centroid_z]
-    
+
+  
 def trans_and_rot_to_origin(pdb,center,axis):
   parser = PDBParser()
   structure = parser.get_structure('PDB', pdb)
@@ -100,18 +101,52 @@ def trans_and_rot_to_origin(pdb,center,axis):
     atom.set_coord(new_coord)
     
   return structure
-    
-def rotation_atom(structure, axis, center, angle):
 
-  rot = rotaxis(angle ,axis)
-  structure=trans_to_origin(structure,center)
-  chain_list = Selection.unfold_entities(structure, 'C')
-  for atom in chain_list[1].get_atoms():
-    vect=atom.get_vector()
-    vect_rot= vect.left_multiply(rot)
-    coord_rot=[i for i in vect_rot]
-    atom.set_coord(coord_rot)
-  return structure
+def sample_rot_trans_space(structure,rotation,rot_step,translation,trans_step,out,mut):
+      io = PDBIO()
+      Teta=np.arange(-rotation,rotation,rot_step)
+      Delta=np.arange(-translation,translation,trans_step)
+      counter=1
+      for delta in Delta: ## loop for trans
+        for teta in Teta: ## loop for rot
+          structure_copy=structure.copy()
+          rotation=rotaxis(np.pi/180*teta, Vector(0,0,1)) ## rotation matrice
+          translation=np.array((0, 0, delta), 'f') ## translation matrice ????
+          chain_list = Selection.unfold_entities(structure_copy, 'C')
+          chain_list[1].transform(rotation, translation)
+          io.set_structure(structure_copy)
+          io.save(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
+
+def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation/translation axis and the center
+    
+    ## Compute interface at "dist" of distance and store: 
+    ## The contact_list=[i := contact of ith residue ] 
+    ## The interface_list= [[interface_1],[interface_2]]
+    score(pose)
+    interface = Interface(1)
+    interface.distance(dist)
+    interface.calculate(pose)
+    contact = interface.contact_list()
+    interface_residue = interface.pair_list()
+    
+    centroid_interface=[]
+    for interface in interface_residue: ## Compute the axis by taking the whole interfaces. (Only for the native)
+      centroid_interface.append(centroid([pose.residue(res).xyz('CA') for res in interface])) ## store the centroids of the residue in the interfaces.
+    interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
+    center=centroid_interface[0]
+    
+    ## If there is mutation. The axis change by moving to the centroid of mutable residue.
+    if (len(resmuts) != 0 and len(interface_residue[1])!=0 and len(interface_residue[2])!=0 ) :
+      centroid_muts=[] ## array for the mutables centroids
+      centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
+      for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
+        centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
+        centroid_muts.append(pose.residue(int(res)).xyz("CA"))
+      centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
+      centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
+      interface_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
+      center=centroid_mut
+    return (interface_axis, center)
 
 def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts, is_rosetta):
 
@@ -124,29 +159,6 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     scorefxn_talaris = create_score_function('talaris2014')
     scorefxn_talaris(starting_p)
     
-    ## Compute the interface
-    interface = Interface(1)
-    interface.distance(10.0)
-    interface.calculate(pose)
-    contact = interface.contact_list()
-    interface_residue = interface.pair_list()
-    centroid_interface=[]
-    for interface in interface_residue:
-      centroid_interface.append(centroid([pose.residue(res).xyz('CA') for res in interface]))
-    interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
-    center=centroid_interface[0]
-    print resmuts
-    ## If there is mutation. The axis change by moving to the centroid of mutable residue.
-    if (len(resmuts) != 0 and len(interface_residue[1])!=0 and len(interface_residue[2])!=0 ) :
-      centroid_muts=[] ## array for the mutables centroids
-      centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
-      for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
-        centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
-        centroid_muts.append(pose.residue(int(res)).xyz("CA"))
-      centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
-      centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
-      interface_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
-      center=centroid_mut
     ## Minization after mutation and before trans/rot
     movemap = MoveMap()
     movemap.set_jump(1, True)
@@ -158,6 +170,11 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     
     minmover.apply(starting_p)
     starting_p.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
+    
+    interface_axis_center=Interface_axis(starting_p, 10, resmuts, scorfxn_talaris)
+    interface_axis=interface_axis_center[0]
+    center=interface_axis_center[1]
+    
     
     compute_interactions(starting_p,'full.resfile', out+"/LG/"+mut+'_min.LG')
     
@@ -174,8 +191,8 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     get_Z_matrix(starting_p,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
     
     if not (is_rosetta):
-      io = PDBIO()
-      print center
+      Optimal_Solutions=[]
+      Optimal_Energies=[]
       structure=trans_and_rot_to_origin(out+"/PDB/"+mut+"_min.pdb", center, interface_axis) ## Translate the complex to have the center of rotation on origin
       Teta=np.arange(-rotation,rotation,rot_step)
       Delta=np.arange(-translation,translation,trans_step)
@@ -201,9 +218,16 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
             elif ("Optimum:" in line_split) :
               OptSolution=line_split[1].split('-')
           OptSolution = [int(i) for i in OptSolution]
+          Optimal_Solutions.append(OptSolution)
+          Optimal_Energies.append(OptEnergy)
           get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
-          
+      E_array = np.array(Optimal_Energies)
+      sort_index = np.argsort(E_array)
+      file_sort_E=open(out+".sc",'w')
+      for opt in sort_E:
+        file_sort.write(opt+'\n')  
+      
     elif (is_rosetta):                                                                       
       ### Define the translation axis by taking the axis between
       ### the centroid of flexibles and the centroid of mutable ?
@@ -360,25 +384,22 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
             unary_terms.write(str(-unary_ener)+' ')
         unary_terms.write('\n')
 
-    binares=[]
-    for res1 in range(0, len(flexibles)-1):
-        for res2 in range(res1+1, len(flexibles)):
-            if (ig.get_edge_exists(flexibles[res1], res2)):
-                num_fct += 1
-                N= rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()*rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers()
-                scope.write("2 "+str(res1)+' '+str(res2)+'\n')
-                binary_terms.write(str(N)+'\n')
-                for i in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()+1):
-                    for j in range(1, rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers()+1):
-                        ener=str(ig.get_two_body_energy_for_edge(flexibles[res1],flexibles[res2],i,j))
-                        binary_terms.write(str(ener)+' ')
-                    binary_terms.write('\n')
+    for res1 in range(0, len(flexibles)):
+      for res2 in range(res1+1, len(flexibles)):
+          if (ig.get_edge_exists(flexibles[res1], flexibles[res2])):
+              num_fct += 1
+              N= rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()*rotsets.rotamer_set_for_moltenresidue(flexibles[res2]).num_rotamers()
+              scope.write("2 "+str(res1)+' '+str(res2)+'\n')
+              binary_terms.write(str(N)+'\n')
+              for i in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()+1):
+                  for j in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res2]).num_rotamers()+1):
+                      ener=str(ig.get_two_body_energy_for_edge(flexibles[res1],flexibles[res2],i,j))
+                      binary_terms.write(str(ener)+' ')
+                  binary_terms.write('\n')
 
 
 
     domain.write('\n')
-
-    binary_terms.close()
 
     g.write('MARKOV\n')
     g.write(str(len(flexibles))+'\n')
@@ -387,6 +408,8 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     g.write(scope.getvalue())
     g.write(zeroary_terms.getvalue())
     g.write(unary_terms.getvalue())
+    g.write(binary_terms.getvalue())
+    binary_terms.close()
     domain.close()
     scope.close()
     zeroary_terms.close()
