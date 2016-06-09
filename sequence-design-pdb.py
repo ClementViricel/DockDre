@@ -311,10 +311,8 @@ def compute_interactions(pose, resfile, out):
                 domain_res=str(rotsets.rotamer_set_for_moltenresidue(res1).num_rotamers()*rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers())
                 binary_terms.write(domain_res+'\n')
                 for i in range(1, rotsets.rotamer_set_for_moltenresidue(res1).num_rotamers()+1):
-                    nres1=rotsets.rotamer_set_for_moltenresidue(res1).rotamer(i).name3()
                     for j in range(1, rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers()+1):
                         ener=ig.get_two_body_energy_for_edge(res1,res2,i,j)
-                        nres2=rotsets.rotamer_set_for_moltenresidue(res2).rotamer(j).name3()
                         binary_terms.write(str(-ener)+' ')
                     binary_terms.write('\n')
 
@@ -360,7 +358,7 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     num_fct=1
     scope=StringIO.StringIO()
     zeroary_terms=StringIO.StringIO()
-    zeroary_terms.write("0\n")
+    zeroary_terms.write("1\n")
     zeroary_terms.write(str(-template_energy)+'\n')
     scope.write('0\n')
     unary_terms=StringIO.StringIO()
@@ -384,7 +382,7 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
             unary_terms.write(str(-unary_ener)+' ')
         unary_terms.write('\n')
 
-    for res1 in range(0, len(flexibles)):
+    for res1 in range(0, len(flexibles)-1):
       for res2 in range(res1+1, len(flexibles)):
           if (ig.get_edge_exists(flexibles[res1], flexibles[res2])):
               num_fct += 1
