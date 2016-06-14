@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from datetime import datetime
 import os
 import optparse
 import re
@@ -54,6 +54,7 @@ reference_energy={
     'ASN': -1.63002,
     'ASP': -1.96094,
     'CYS': 0.61937,
+    'CYD': 0.61937,
     'GLU':0.173326,
     'GLN': 0.388298,
     'GLY': 1.0806,
@@ -122,16 +123,18 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
     ## Compute interface at "dist" of distance and store: 
     ## The contact_list=[i := contact of ith residue ] 
     ## The interface_list= [[interface_1],[interface_2]]
-    score(pose)
+    copy_pose=Pose()
+    copy_pose.assign(pose)
+    score(copy_pose)
     interface = Interface(1)
     interface.distance(dist)
-    interface.calculate(pose)
+    interface.calculate(copy_pose)
     contact = interface.contact_list()
     interface_residue = interface.pair_list()
     
     centroid_interface=[]
     for interface in interface_residue: ## Compute the axis by taking the whole interfaces. (Only for the native)
-      centroid_interface.append(centroid([pose.residue(res).xyz('CA') for res in interface])) ## store the centroids of the residue in the interfaces.
+      centroid_interface.append(centroid([copy_pose.residue(res).xyz('CA') for res in interface])) ## store the centroids of the residue in the interfaces.
     interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
     center=centroid_interface[0]
     
@@ -140,8 +143,8 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
       centroid_muts=[] ## array for the mutables centroids
       centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
       for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
-        centroid_flexs.append(centroid([pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
-        centroid_muts.append(pose.residue(int(res)).xyz("CA"))
+        centroid_flexs.append(centroid([copy_pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
+        centroid_muts.append(copy_pose.residue(int(res)).xyz("CA"))
       centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
       centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
       interface_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
@@ -150,14 +153,14 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
 
 def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts, is_rosetta):
 
-    starting_p = Pose()
-    starting_p.assign(pose)
+    copy_pose = Pose()
+    copy_pose.assign(pose)
     dock_jump = 1
 
-    setup_foldtree(starting_p, partners, Vector1([1]))
+    setup_foldtree(copy_pose, partners, Vector1([1]))
 
     scorefxn_talaris = create_score_function('talaris2014')
-    scorefxn_talaris(starting_p)
+    scorefxn_talaris(copy_pose)
     
     ## Minization after mutation and before trans/rot
     movemap = MoveMap()
@@ -168,34 +171,35 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     min_type = "dfpmin"
     minmover = MinMover(movemap, scorefxn_talaris, min_type, tolerance, True) 
     
-    minmover.apply(starting_p)
-    starting_p.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
+    minmover.apply(copy_pose)
+    copy_pose.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
+    compute_interactions(copy_pose,'full.resfile', out+"/LG/"+mut+'_min.LG')
     
-    interface_axis_center=Interface_axis(starting_p, 10, resmuts, scorfxn_talaris)
+    interface_axis_center=Interface_axis(copy_pose, 10, resmuts, scorefxn_talaris)
     interface_axis=interface_axis_center[0]
     center=interface_axis_center[1]
     
-    
-    compute_interactions(starting_p,'full.resfile', out+"/LG/"+mut+'_min.LG')
-    
-    command=["toulbar2",out+"/LG/"+mut+'_min.LG']
+    command=["toulbar2",out+"/LG/"+mut+'_min.LG',"-w="+out+"/SOL/"+mut+'_min.sol']
     tb2out=check_output(command)
     tb2out=tb2out.split('\n')
     for line in tb2out:
         line_split=line.split()
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
-        elif ("Optimum:" in line_split) :
-            OptSolution=line_split[1].split('-')
-            OptSolution = [int(i) for i in OptSolution]
-    get_Z_matrix(starting_p,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
+
+    Optfile=open(out+"/SOL/"+mut+'_min.sol','r')
+    OptSolution = Optfile.readlines()[0].split()
+    OptSolution = [int(i) for i in OptSolution]
+    Optfile.close()
+    get_Z_matrix(copy_pose,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
     
     if not (is_rosetta):
+      io = PDBIO()
       Optimal_Solutions=[]
       Optimal_Energies=[]
       structure=trans_and_rot_to_origin(out+"/PDB/"+mut+"_min.pdb", center, interface_axis) ## Translate the complex to have the center of rotation on origin
-      Teta=np.arange(-rotation,rotation,rot_step)
-      Delta=np.arange(-translation,translation,trans_step)
+      Teta=np.arange(-rotation,rotation+rot_step,rot_step)
+      Delta=np.arange(-translation,translation+trans_step,trans_step)
       counter=1
       for delta in Delta: ## loop for trans
         for teta in Teta: ## loop for rot
@@ -206,27 +210,30 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
           chain_list[1].transform(rotation, translation)
           io.set_structure(structure_copy)
           io.save(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
+          pose=Pose()
           pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
           compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
-          command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG"] # FSCP
+          command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG","-w="+out+"/SOL/"+mut+"_"+str(counter)+".sol"] # FSCP
           tb2out=check_output(command)
           tb2out=tb2out.split('\n')
           for line in tb2out:
             line_split=line.split()
             if ("Optimum:" in line_split) and ("Energy:" in line_split):
               OptEnergy=float(line_split[3])
-            elif ("Optimum:" in line_split) :
-              OptSolution=line_split[1].split('-')
+
+          Optfile=open(out+"/SOL/"+mut+"_"+str(counter)+".sol",'r')
+          OptSolution = Optfile.readlines()[0].split()
           OptSolution = [int(i) for i in OptSolution]
-          Optimal_Solutions.append(OptSolution)
+          Optfile.close()
           Optimal_Energies.append(OptEnergy)
-          get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
+          get_Z_matrix(pose, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
+          
       E_array = np.array(Optimal_Energies)
       sort_index = np.argsort(E_array)
-      file_sort_E=open(out+".sc",'w')
-      for opt in sort_E:
-        file_sort.write(opt+'\n')  
+      file_sort_E=open(out+"/score.sc",'w')
+      for opt in sort_index:
+        file_sort_E.write(str(opt)+' '+str(Optimal_Energies[opt])+'\n')  
       
     elif (is_rosetta):                                                                       
       ### Define the translation axis by taking the axis between
@@ -236,7 +243,7 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
       center=rosetta.numeric.xyzVector_Real()
       center.assign(center[0],center[1],center[2])
     
-      trans_pert = RigidBodyTransMover(starting_p,dock_jump)
+      trans_pert = RigidBodyTransMover(copy_pose,dock_jump)
       trans_pert.trans_axis(axis)
     
       #[2.5134999999999934, -1.6895000000000024, -5.932000000000002]
@@ -268,19 +275,22 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
             elif ("Optimum:" in line_split) :
               OptSolution=line_split[1].split('-')
           OptSolution = [int(i) for i in OptSolution]
-          get_Z_matrix(starting_p, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
+          print "GET Z MATRIX FOR POSE NUMBER ",counter
+          get_Z_matrix(pose, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
 
 def compute_interactions(pose, resfile, out):
+    copy_pose=Pose()
+    copy_pose.assign(pose)
     score_fxn = create_score_function('talaris2014')
-    task_design = TaskFactory.create_packer_task(pose)
+    task_design = TaskFactory.create_packer_task(copy_pose)
     task_design.initialize_from_command_line()
-    parse_resfile(pose, task_design, resfile)
-    pose.update_residue_neighbors()
-    png = create_packer_graph(pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
+    parse_resfile(copy_pose, task_design, resfile)
+    copy_pose.update_residue_neighbors()
+    png = create_packer_graph(copy_pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
     rotsets = RotamerSets()
-    ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
-    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
+    ig = pack_rotamers_setup(copy_pose, score_fxn, task_design, rotsets)
+    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, copy_pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
     g = open(out,'w')
     ener=0.0
     g.write("MARKOV\n")
@@ -328,31 +338,35 @@ def compute_interactions(pose, resfile, out):
     g.close()
     
 def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
+    copy_pose=Pose()
+    copy_pose.assign(pose)
     score_fxn = create_score_function('talaris2014')
-    task_design = TaskFactory.create_packer_task(pose)
+    task_design = TaskFactory.create_packer_task(copy_pose)
     task_design.initialize_from_command_line()
-    parse_resfile(pose, task_design, resfile)
-    pose.update_residue_neighbors()
-    png = create_packer_graph(pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
+    parse_resfile(copy_pose, task_design, resfile)
+    copy_pose.update_residue_neighbors()
+    png = create_packer_graph(copy_pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
     rotsets = RotamerSets()
-    ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
-    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
+    ig = pack_rotamers_setup(copy_pose, score_fxn, task_design, rotsets)
+    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, copy_pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
     mat=optsolution
-    template_energy = optenergy
-    for i in range(0, len(flexibles)):
-        nres=rotsets.rotamer_set_for_moltenresidue(flexibles[i]).rotamer(int(mat[flexibles[i]-1]+1)).name3()
-        template_energy-=ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1))+reference_energy[nres]
-        for j in range(0,len(mat)):
-            if (ig.get_edge_exists(flexibles[i], j+1)):
-                if (j+1) in flexibles:
-                    if (flexibles[i]<j+1):
-                        template_energy-=ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1))
-                else:
-                    if (flexibles[i]<j+1):
-                        template_energy-=ig.get_two_body_energy_for_edge(flexibles[i],j+1,int(mat[flexibles[i]-1]+1),int(mat[j]+1))
-                    else:
-                        template_energy-=ig.get_two_body_energy_for_edge(j+1,flexibles[i],int(mat[j]+1),int(mat[flexibles[i]-1]+1))
+    template_energy = optenergy ## template energy is total optimum energy
+    t=0
+    for i in range(0, len(mat)):
+        nres=rotsets.rotamer_set_for_moltenresidue(i+1).rotamer(int(mat[i]+1)).name3()
+        t += (ig.get_one_body_energy_for_node_state(i+1,int(mat[i]+1))+reference_energy[nres]) ## substract unary terms of flexibles to template energy
+        for j in range(i+1,len(mat)):
+            if (ig.get_edge_exists(i+1, j+1)):
+                t +=ig.get_two_body_energy_for_edge(i+1,j+1,int(mat[i]+1),int(mat[j]+1))
+    print t,template_energy
     
+    for i in range(0, len(flexibles)-1):
+        nres=rotsets.rotamer_set_for_moltenresidue(flexibles[i]).rotamer(int(mat[flexibles[i]-1]+1)).name3()
+        template_energy-= (ig.get_one_body_energy_for_node_state(flexibles[i],int(mat[flexibles[i]-1]+1))+reference_energy[nres]) ## substract unary terms of flexibles to template energy
+        for j in range(i+1,len(flexibles)):
+            if (ig.get_edge_exists(flexibles[i], flexibles[j])):
+                template_energy-=ig.get_two_body_energy_for_edge(flexibles[i],flexibles[j],int(mat[flexibles[i]-1]+1),int(mat[flexibles[j]-1]+1))
+
     g = open(out_matrix,'w')
     domain=StringIO.StringIO()
     num_fct=1
@@ -373,7 +387,6 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
         for i in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()+1):
             nres1=rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).rotamer(i).name3()
             unary_ener=ig.get_one_body_energy_for_node_state(flexibles[res1],i) + reference_energy[nres1]
-            
             for res2 in range(1,ig.get_num_nodes()+1):
                 if res2 not in flexibles:
                     if (ig.get_edge_exists(flexibles[res1], res2)):
@@ -391,8 +404,8 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
               binary_terms.write(str(N)+'\n')
               for i in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res1]).num_rotamers()+1):
                   for j in range(1, rotsets.rotamer_set_for_moltenresidue(flexibles[res2]).num_rotamers()+1):
-                      ener=str(ig.get_two_body_energy_for_edge(flexibles[res1],flexibles[res2],i,j))
-                      binary_terms.write(str(ener)+' ')
+                      ener=ig.get_two_body_energy_for_edge(flexibles[res1],flexibles[res2],i,j)
+                      binary_terms.write(str(-ener)+' ')
                   binary_terms.write('\n')
 
 
@@ -481,6 +494,9 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
         
       if not os.path.exists(mut_folder+'/ZLG'):
         os.mkdir(mut_folder+'/ZLG')
+
+      if not os.path.exists(mut_folder+'/SOL'):
+        os.mkdir(mut_folder+'/SOL')
         
       mut_pose.dump_pdb(mut_folder+"/PDB/"+mut+'.pdb')
 
@@ -508,7 +524,7 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy and compute Z matrix.
       ##### FOR THE RECEPTOR
       compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/LG/receptor.LG')
-      command=["toulbar2",mut_folder+"/LG/receptor.LG"]
+      command=["toulbar2",mut_folder+"/LG/receptor.LG","-w="+mut_folder+"/SOL/receptor.sol"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       OptEnergy=0
@@ -517,43 +533,32 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
         line_split=line.split()
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
-        elif ("Optimum:" in line_split) :
-            OptSolution=line_split[1].split('-')
+      Optfile=open(mut_folder+"/SOL/receptor.sol",'r')
+      OptSolution=Optfile.readlines()[0].split()
       OptSolution = [int(i) for i in OptSolution]
+      Optfile.close()
       
       get_Z_matrix(pose_prot_1, OptSolution, OptEnergy, "full.resfile", flexibles_rec, mut_folder+"/ZLG/receptor.LG")	
       
       ##### FOR THE LIGAND
       flexibles_lig_renum=[i-int(chain_length[0]) for i in flexibles_lig]
       compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/LG/ligand.LG')
-      command=["toulbar2",mut_folder+"/LG/ligand.LG"]
+      command=["toulbar2",mut_folder+"/LG/ligand.LG","-w="+mut_folder+"/SOL/ligand.sol"]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
         line_split=line.split()
         if ("Optimum:" in line_split) and ("Energy:" in line_split):
             OptEnergy=float(line_split[3])
-        elif ("Optimum:" in line_split) :
-            OptSolution=line_split[1].split('-')
+    
+      Optfile=open(mut_folder+"/SOL/ligand.sol",'r')
+      OptSolution=Optfile.readlines()[0].split()
       OptSolution = [int(i) for i in OptSolution]
+      Optfile.close()
       
       get_Z_matrix(pose_prot_2,OptSolution,OptEnergy,"full.resfile",flexibles_lig_renum,mut_folder+"/ZLG/ligand.LG")		
-     
-      # FOR THE COMPLEX
-      compute_interactions(mut_pose,'full.resfile', mut_folder+"/LG/"+mut+'_min.LG')
-      command=["toulbar2",mut_folder+"/LG/"+mut+'_min.LG']
-      tb2out=check_output(command)
-      tb2out=tb2out.split('\n')
-      for line in tb2out:
-        line_split=line.split()
-        if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            OptEnergy=float(line_split[3])
-        elif ("Optimum:" in line_split) :
-            OptSolution=line_split[1].split('-')
-      OptSolution = [int(i) for i in OptSolution]
-      
-      get_Z_matrix(mut_pose,OptSolution,OptEnergy,"full.resfile",flexibles,mut_folder+"/ZLG/"+mut+'_min.LG')
-      
+
+      ## Loop for trans rot
       partners=chain_name[0]+'_'+chain_name[1]
       rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts,is_rosetta)
     
@@ -596,13 +601,16 @@ parser.add_option( '--rosetta', dest='is_rosetta' ,
 
 pdb_file=options.pdb_file
 sequence_file = options.seq_file
-translation_size=options.translation_size
-rotation_size=options.rotation_size
-translation_step=options.translation_step
-rotation_step=options.rotation_step
+translation_size=float(options.translation_size)
+rotation_size=float(options.rotation_size)
+translation_step=float(options.translation_step)
+rotation_step=float(options.rotation_step)
 is_rosetta = options.is_rosetta
 
 
 ################# MUTATION, PDB and MATRIX PRODUCTION #############
 
+start_time=datetime.now()
 mutation_rot_trans(pdb_file, sequence_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta)
+end_time=datetime.now()-start_time
+print end_time
