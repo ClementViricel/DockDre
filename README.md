@@ -11,6 +11,10 @@ Hierarchy of the folder is:
 
 Example Command line:
 
-python sequence-design.py --pdb 1PPF.pdb --seq 1PPF.seq
+python sequence-design.py --pdb 1PPF.pdb --seq 1PPF.test.seq
 
-python Jay-Z --pdb 1PPF.pdb --seq 1PPF.seq
+python Jay-Z --pdb 1PPF.pdb --seq 1PPF.test.seq
+
+It will take 5 hours to run this two lines. (The first command is quick and the second is long)
+
+ENJOY !
