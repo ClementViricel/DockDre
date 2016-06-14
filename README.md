@@ -1,7 +1,7 @@
 # DockDre
 
-Script that mutate the residue of [--pdb].
-Mutations are taken in the sequence file [--seq] (the file must be written in raw)
+Script that mutate the residue of --pdb.
+Mutations are taken in the sequence file --seq (the file must be written in raw)
 A folder will be create for each mutation with the mutation name.
 Hierarchy of the folder is:
 
