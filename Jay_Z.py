@@ -62,16 +62,17 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       score_file=scorefile.readlines()
       for instance in score_file[0:nb_instance]:
         instance=instance.split()
-        print "Pose:", instance[0]
-        out.write(str(instance[0])+' ')
-        f=open(os.getcwd()+'/'+mut+"/SOL/"+mut+"_"+instance[0]+".sol",'r')
+        counter= int(instance[0])+1
+        print "Pose:", counter
+        out.write(str(counter)+' ')
+        f=open(os.getcwd()+'/'+mut+"/SOL/"+mut+"_"+str(counter)+".sol",'r')
         sol=[int(i) for i in f.readlines()[0].split()]
         f.close()
         opt=""
         for i in range(0,len(sol)):
           if not i+1 in flexibles:
             opt+=","+str(i)+"="+str(sol[i])
-        command=["toulbar2",os.getcwd()+'/'+mut+"/LG/"+mut+"_"+instance[0]+".LG","-logz","-ztmp","-x="+opt]
+        command=["toulbar2",os.getcwd()+'/'+mut+"/LG/"+mut+"_"+str(counter)+".LG","-logz","-ztmp","-x="+opt]
         tb2out=check_output(command)
         tb2out=tb2out.split('\n')
         for line in tb2out:
