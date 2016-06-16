@@ -67,9 +67,10 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
         f=open(os.getcwd()+'/'+mut+"/SOL/"+mut+"_"+instance[0]+".sol",'r')
         sol=[int(i) for i in f.readlines()[0].split()]
         f.close()
+        opt=[]
         for i in range(0,len(sol)):
           if not i+1 in flexibles:
-            opt=","+str(i)+"="+str(sol[i])
+            opt+=","+str(i)+"="+str(sol[i])
         command=["toulbar2",os.getcwd()+'/'+mut+"/LG/"+mut+"_"+instance[0]+".LG","-logz","-ztmp","-x="+opt]
         tb2out=check_output(command)
         tb2out=tb2out.split('\n')
@@ -84,9 +85,10 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       f=open(os.getcwd()+'/'+mut+"/SOL/receptor.sol",'r')
       sol_rec=[int(i) for i in f.readlines()[0].split()]
       f.close()
+      opt=[]
       for i in range(0,len(sol_rec)):
         if not i+1 in flexibles_rec:
-          opt=","+str(i)+"="+str(sol_rec[i])
+          opt+=","+str(i)+"="+str(sol_rec[i])
       command=["toulbar2",os.getcwd()+'/'+mut+"/LG/receptor.LG","-logz","-ztmp","-x="+opt]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
@@ -101,10 +103,11 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       f=open(os.getcwd()+'/'+mut+"/SOL/ligand.sol",'r')
       sol_lig=[int(i) for i in f.readlines()[0].split()]
       f.close()
+      opt=[]
       for i in range(0,len(sol_lig)):
         if not i+1 in flexibles_lig_renum:
-          opt=","+str(i)+"="+str(sol_lig[i])
-      command=["toulbar2",os.getcwd()+'/'+mut+"/ZLG/ligand.LG","-logz","-ztmp","-x="+opt]
+          opt+=","+str(i)+"="+str(sol_lig[i])
+      command=["toulbar2",os.getcwd()+'/'+mut+"/LG/ligand.LG","-logz","-ztmp","-x="+opt]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
