@@ -27,7 +27,7 @@ parser.add_option('--nb', dest = 'nb',
 
 pdb_file=options.pdb_file
 seq_file = options.seq_file
-nb_instance=options.nb
+nb_instance=int(options.nb)
 
 sequences=[]
 sequences.append(pdb_file.split('.pdb')[0])
@@ -60,26 +60,49 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       out=open(os.getcwd()+'/'+mut+'/K_list','w')
       scorefile=open(os.getcwd()+'/'+mut+'/score.sc','r')
       score_file=scorefile.readlines()
-      for instance in score_file[0:nb_instance]:
-        instance=instance.split()
-        counter= int(instance[0])+1
-        print "Pose:", counter
-        out.write(str(counter)+' ')
-        f=open(os.getcwd()+'/'+mut+"/SOL/"+mut+"_"+str(counter)+".sol",'r')
-        sol=[int(i) for i in f.readlines()[0].split()]
-        f.close()
-        opt=""
-        for i in range(0,len(sol)):
-          if not i+1 in flexibles:
-            opt+=","+str(i)+"="+str(sol[i])
-        command=["toulbar2",os.getcwd()+'/'+mut+"/LG/"+mut+"_"+str(counter)+".LG","-logz","-ztmp","-x="+opt]
-        tb2out=check_output(command)
-        tb2out=tb2out.split('\n')
-        for line in tb2out:
-          if "<= Log(Z) <=" in line:
-           LogZb.append(float(line.split()[0]))
-           out.write(line.split()[0]+' '+line.split()[12]+'\n')
-           time.append(float(line.split()[12]))
+      instances=os.listdir(os.getcwd()+'/'+mut+'/SOL')
+      for instance_file in instances:
+        for counter in range(0,nb_instance):
+          #print score_file[counter].split()[0], instance_file.split('_')[1].split('.sol')[0]
+          if instance_file!="receptor.sol" and instance_file!="ligand.sol" and score_file[counter].split()[0] == instance_file.split('_')[1].split('.sol')[0]:
+            instance=instance_file.split('.sol')[0]
+            print "Pose:", instance_file
+            out.write(instance_file+' ')
+            f=open(os.getcwd()+'/'+mut+"/SOL/"+instance_file,'r')
+            sol=[int(i) for i in f.readlines()[0].split()]
+            f.close()
+            opt=""
+            for i in range(0,len(sol)):
+              if not i+1 in flexibles:
+                opt+=","+str(i)+"="+str(sol[i])
+            command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/"+instance+".uai","-logz","-ztmp","-x="+opt]
+            tb2out=check_output(command)
+            tb2out=tb2out.split('\n')
+            for line in tb2out:
+              if "<= Log(Z) <=" in line:
+                LogZb.append(float(line.split()[0]))
+                out.write(line.split()[0]+' '+line.split()[12]+'\n')
+                time.append(float(line.split()[12]))
+        
+        if instance_file!="receptor.sol" and instance_file!="ligand.sol" and instance_file.split('_')[1]=="min.sol":
+          instance=instance_file.split('.sol')[0]
+          print "Pose:", instance_file
+          out.write(instance_file+' ')
+          f=open(os.getcwd()+'/'+mut+"/SOL/"+instance_file,'r')
+          sol=[int(i) for i in f.readlines()[0].split()]
+          f.close()
+          opt=""
+          for i in range(0,len(sol)):
+            if not i+1 in flexibles:
+              opt+=","+str(i)+"="+str(sol[i])
+          command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/"+instance+".uai","-logz","-ztmp","-x="+opt]
+          tb2out=check_output(command)
+          tb2out=tb2out.split('\n')
+          for line in tb2out:
+            if "<= Log(Z) <=" in line:
+              LogZb.append(float(line.split()[0]))
+              out.write(line.split()[0]+' '+line.split()[12]+'\n')
+              time.append(float(line.split()[12]))
       LogZ=logsumexp(LogZb)
       
       print "Receptor"
@@ -90,7 +113,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       for i in range(0,len(sol_rec)):
         if not i+1 in flexibles_rec:
           opt+=","+str(i)+"="+str(sol_rec[i])
-      command=["toulbar2",os.getcwd()+'/'+mut+"/LG/receptor.LG","-logz","-ztmp","-x="+opt]
+      command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/receptor.uai","-logz","-ztmp","-x="+opt]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -108,7 +131,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       for i in range(0,len(sol_lig)):
         if not i+1 in flexibles_lig_renum:
           opt+=","+str(i)+"="+str(sol_lig[i])
-      command=["toulbar2",os.getcwd()+'/'+mut+"/LG/ligand.LG","-logz","-ztmp","-x="+opt]
+      command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/ligand.uai","-logz","-ztmp","-x="+opt]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -121,7 +144,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       scorefile.close()
       out.close()
       K.append([mut,Kmut])
-  print K
+
   K=sorted(K,key=itemgetter(1))
   time=sum(time)
   out_file=open(os.getcwd()+"/K_list",'w')

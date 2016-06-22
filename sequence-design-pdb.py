@@ -174,24 +174,25 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     minmover.apply(copy_pose)
     copy_pose.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
     compute_interactions(copy_pose,'full.resfile', out+"/LG/"+mut+'_min.LG')
+    os.rename(out+"/LG/"+mut+'_min.uai', out+"/UAI/"+mut+'_min.uai')
     
     interface_axis_center=Interface_axis(copy_pose, 10, resmuts, scorefxn_talaris)
     interface_axis=interface_axis_center[0]
     center=interface_axis_center[1]
     
     command=["toulbar2",out+"/LG/"+mut+'_min.LG',"-w="+out+"/SOL/"+mut+'_min.sol']
-    tb2out=check_output(command)
-    tb2out=tb2out.split('\n')
-    for line in tb2out:
-        line_split=line.split()
-        if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            OptEnergy=float(line_split[3])
+    tb2out=call(command)
+    #tb2out=tb2out.split('\n')
+    #for line in tb2out:
+    #    line_split=line.split()
+    #    if ("Optimum:" in line_split) and ("Energy:" in line_split):
+    #        OptEnergy=float(line_split[3])
 
-    Optfile=open(out+"/SOL/"+mut+'_min.sol','r')
-    OptSolution = Optfile.readlines()[0].split()
-    OptSolution = [int(i) for i in OptSolution]
-    Optfile.close()
-    get_Z_matrix(copy_pose,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
+    #Optfile=open(out+"/SOL/"+mut+'_min.sol','r')
+    #OptSolution = Optfile.readlines()[0].split()
+    #OptSolution = [int(i) for i in OptSolution]
+    #Optfile.close()
+    #get_Z_matrix(copy_pose,OptSolution,OptEnergy,"full.resfile",flexibles,out+"/ZLG/"+mut+'_min.LG')
     
     if not (is_rosetta):
       io = PDBIO()
@@ -209,10 +210,12 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
           chain_list = Selection.unfold_entities(structure_copy, 'C')
           chain_list[1].transform(rotation, translation)
           io.set_structure(structure_copy)
-          io.save(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
+          io.save(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
           pose=Pose()
-          pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
+          pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
+          minmover.apply(pose)
           compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
+          os.rename(out+"/LG/"+mut+"_"+str(counter)+".uai", out+"/UAI/"+mut+"_"+str(counter)+".uai")
           command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG","-w="+out+"/SOL/"+mut+"_"+str(counter)+".sol"] # FSCP
           tb2out=check_output(command)
           tb2out=tb2out.split('\n')
@@ -221,12 +224,7 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
             if ("Optimum:" in line_split) and ("Energy:" in line_split):
               OptEnergy=float(line_split[3])
 
-          Optfile=open(out+"/SOL/"+mut+"_"+str(counter)+".sol",'r')
-          OptSolution = Optfile.readlines()[0].split()
-          OptSolution = [int(i) for i in OptSolution]
-          Optfile.close()
           Optimal_Energies.append(OptEnergy)
-          get_Z_matrix(pose, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
           
       E_array = np.array(Optimal_Energies)
@@ -276,7 +274,7 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
               OptSolution=line_split[1].split('-')
           OptSolution = [int(i) for i in OptSolution]
           print "GET Z MATRIX FOR POSE NUMBER ",counter
-          get_Z_matrix(pose, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
+          #get_Z_matrix(pose, OptSolution,OptEnergy, "full.resfile", flexibles,out+"/ZLG/"+mut+"_"+str(counter)+".LG") ## ZLG
           counter += 1
 
 def compute_interactions(pose, resfile, out):
@@ -291,14 +289,20 @@ def compute_interactions(pose, resfile, out):
     rotsets = RotamerSets()
     ig = pack_rotamers_setup(copy_pose, score_fxn, task_design, rotsets)
     ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, copy_pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
+    out_uai=out.split('.LG')[0]+'.uai'
     g = open(out,'w')
+    h = open(out_uai,'w')
     ener=0.0
     g.write("MARKOV\n")
     g.write(str(ig.get_num_nodes())+'\n')
+    h.write("MARKOV\n")
+    h.write(str(ig.get_num_nodes())+'\n')
     domain=StringIO.StringIO()
     scope=StringIO.StringIO()
     unary_terms=StringIO.StringIO()
+    exp_unary_terms=StringIO.StringIO()
     binary_terms=StringIO.StringIO()
+    exp_binary_terms=StringIO.StringIO()
     number_of_functions=0
     for res1 in range(1,ig.get_num_nodes()+1):
         number_of_functions += 1
@@ -306,11 +310,14 @@ def compute_interactions(pose, resfile, out):
         domain.write(domain_res+' ')
         scope.write("1 "+str(res1-1)+'\n')
         unary_terms.write(domain_res+'\n')
+        exp_unary_terms.write(domain_res+'\n')
         for i in range(1, rotsets.rotamer_set_for_moltenresidue(res1).num_rotamers()+1):
             resname = rotsets.rotamer_set_for_moltenresidue(res1).rotamer(i).name3()
             ener=ig.get_one_body_energy_for_node_state(res1,i) + reference_energy[resname]
             unary_terms.write(str(-ener)+' ')
+            exp_unary_terms.write(str(np.exp(-ener))+' ')
         unary_terms.write('\n')
+        exp_unary_terms.write('\n')
     domain.write('\n')
 
     for res1 in range(1,ig.get_num_nodes()+1):
@@ -320,22 +327,36 @@ def compute_interactions(pose, resfile, out):
                 scope.write("2 "+str(res1-1)+" "+str(res2-1)+"\n")
                 domain_res=str(rotsets.rotamer_set_for_moltenresidue(res1).num_rotamers()*rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers())
                 binary_terms.write(domain_res+'\n')
+                exp_binary_terms.write(domain_res+'\n')
                 for i in range(1, rotsets.rotamer_set_for_moltenresidue(res1).num_rotamers()+1):
                     for j in range(1, rotsets.rotamer_set_for_moltenresidue(res2).num_rotamers()+1):
                         ener=ig.get_two_body_energy_for_edge(res1,res2,i,j)
                         binary_terms.write(str(-ener)+' ')
+                        exp_binary_terms.write(str(np.exp(-ener))+' ')
                     binary_terms.write('\n')
+                    exp_binary_terms.write('\n')
 
     g.write(domain.getvalue())
+    h.write(domain.getvalue())
     g.write(str(number_of_functions)+'\n')
+    h.write(str(number_of_functions)+'\n')
     g.write(scope.getvalue())
+    h.write(scope.getvalue())
+    
     g.write(unary_terms.getvalue())
     g.write(binary_terms.getvalue())
+
+    h.write(exp_unary_terms.getvalue())
+    h.write(exp_binary_terms.getvalue())
+
     domain.close()
     scope.close()
     unary_terms.close()
     binary_terms.close()
+    exp_unary_terms.close()
+    exp_binary_terms.close()
     g.close()
+    h.close()
     
 def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
     copy_pose=Pose()
@@ -486,17 +507,19 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       if not os.path.exists(mut_folder):
         os.mkdir(mut_folder)
         
-      if not os.path.exists(mut_folder+'/LG'):
-        os.mkdir(mut_folder+'/LG')
-
       if not os.path.exists(mut_folder+'/PDB'):
         os.mkdir(mut_folder+'/PDB')
         
-      if not os.path.exists(mut_folder+'/ZLG'):
-        os.mkdir(mut_folder+'/ZLG')
-
       if not os.path.exists(mut_folder+'/SOL'):
         os.mkdir(mut_folder+'/SOL')
+
+      #if uai==True:
+      if not os.path.exists(mut_folder+'/UAI'):
+        os.mkdir(mut_folder+'/UAI')
+
+      #if lg==True:
+      if not os.path.exists(mut_folder+'/LG'):
+        os.mkdir(mut_folder+'/LG')
         
       mut_pose.dump_pdb(mut_folder+"/PDB/"+mut+'.pdb')
 
@@ -509,13 +532,13 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
         io.save(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain.get_id() + ".pdb")
         chain_length.append(len(chain))
         chain_name.append(chain.get_id())
-        
+      partners=chain_name[0]+'_'+chain_name[1]
+      
       ## Separate the two chains ex: E_I or A_B. Need to rename if more than two chains ?
       pose_prot_1=Pose()
       pose_prot_2=Pose()
       pose_prot_1=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[0] + ".pdb")
       pose_prot_2=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[1] + ".pdb")
-      #repack a faire ???? 
       
       ## Minimise the lonely partners
       minmover.apply(pose_prot_1)
@@ -524,42 +547,18 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy and compute Z matrix.
       ##### FOR THE RECEPTOR
       compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/LG/receptor.LG')
+      os.rename(mut_folder+'/LG/receptor.uai', mut_folder+'/UAI/receptor.uai')
       command=["toulbar2",mut_folder+"/LG/receptor.LG","-w="+mut_folder+"/SOL/receptor.sol"]
-      tb2out=check_output(command)
-      tb2out=tb2out.split('\n')
-      OptEnergy=0
-      
-      for line in tb2out:
-        line_split=line.split()
-        if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            OptEnergy=float(line_split[3])
-      Optfile=open(mut_folder+"/SOL/receptor.sol",'r')
-      OptSolution=Optfile.readlines()[0].split()
-      OptSolution = [int(i) for i in OptSolution]
-      Optfile.close()
-      
-      get_Z_matrix(pose_prot_1, OptSolution, OptEnergy, "full.resfile", flexibles_rec, mut_folder+"/ZLG/receptor.LG")	
+      tb2out=call(command)
       
       ##### FOR THE LIGAND
       flexibles_lig_renum=[i-int(chain_length[0]) for i in flexibles_lig]
       compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/LG/ligand.LG')
+      os.rename(mut_folder+'/LG/ligand.uai', mut_folder+'/UAI/ligand.uai')
       command=["toulbar2",mut_folder+"/LG/ligand.LG","-w="+mut_folder+"/SOL/ligand.sol"]
-      tb2out=check_output(command)
-      tb2out=tb2out.split('\n')
-      for line in tb2out:
-        line_split=line.split()
-        if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            OptEnergy=float(line_split[3])
-    
-      Optfile=open(mut_folder+"/SOL/ligand.sol",'r')
-      OptSolution=Optfile.readlines()[0].split()
-      OptSolution = [int(i) for i in OptSolution]
-      Optfile.close()
-      
-      get_Z_matrix(pose_prot_2,OptSolution,OptEnergy,"full.resfile",flexibles_lig_renum,mut_folder+"/ZLG/ligand.LG")		
+      tb2out=call(command)
 
       ## Loop for trans rot
-      partners=chain_name[0]+'_'+chain_name[1]
       rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts,is_rosetta)
     
       print "Finish Processing Mutation:",mut
