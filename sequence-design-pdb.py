@@ -162,18 +162,8 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     scorefxn_talaris = create_score_function('talaris2014')
     scorefxn_talaris(copy_pose)
     
-    ## Minization after mutation and before trans/rot
-    movemap = MoveMap()
-    movemap.set_jump(1, True)
-    movemap.set_bb(True)
-    
-    tolerance = 0.01
-    min_type = "dfpmin"
-    minmover = MinMover(movemap, scorefxn_talaris, min_type, tolerance, True) 
-    
-    minmover.apply(copy_pose)
-    copy_pose.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
     compute_interactions(copy_pose,'full.resfile', out+"/LG/"+mut+'_min.LG')
+    copy_pose.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
     os.rename(out+"/LG/"+mut+'_min.uai', out+"/UAI/"+mut+'_min.uai')
     
     interface_axis_center=Interface_axis(copy_pose, 10, resmuts, scorefxn_talaris)
@@ -213,7 +203,6 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
           io.save(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
           pose=Pose()
           pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
-          minmover.apply(pose)
           compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
           os.rename(out+"/LG/"+mut+"_"+str(counter)+".uai", out+"/UAI/"+mut+"_"+str(counter)+".uai")
           command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG","-w="+out+"/SOL/"+mut+"_"+str(counter)+".sol"] # FSCP
@@ -281,6 +270,16 @@ def compute_interactions(pose, resfile, out):
     copy_pose=Pose()
     copy_pose.assign(pose)
     score_fxn = create_score_function('talaris2014')
+   
+    ## Minimization
+    movemap = MoveMap()
+    movemap.set_jump(1, True)
+    movemap.set_bb(True)
+    tolerance = 0.01
+    min_type = "dfpmin"
+    minmover = MinMover(movemap, score_fxn, min_type, tolerance, True) 
+    minmover.apply(copy_pose)
+    
     task_design = TaskFactory.create_packer_task(copy_pose)
     task_design.initialize_from_command_line()
     parse_resfile(copy_pose, task_design, resfile)
@@ -480,15 +479,15 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
     flexibles=sorted(flexibles_rec+flexibles_lig)
     
     ## First minimisation (may do fastrelax ?) 
-    movemap = MoveMap()
-    movemap.set_jump(1, True)
-    movemap.set_bb(True)
-    tolerance = 0.01
-    min_type = "dfpmin"
-    minmover = MinMover(movemap, scorefxn, min_type, tolerance, True) 
-    minmover.apply(pose)
+    #movemap = MoveMap()
+    #movemap.set_jump(1, True)
+    #movemap.set_bb(True)
+    #tolerance = 0.01
+    #min_type = "dfpmin"
+    #minmover = MinMover(movemap, scorefxn, min_type, tolerance, True) 
+    #minmover.apply(pose)
     
-    pose.dump_pdb(input_file_name+"_min.pdb")
+    #pose.dump_pdb(input_file_name+"_min.pdb")
     
     ###### Mutation Loop ####
     for mut in sequences.keys():
@@ -541,8 +540,8 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       pose_prot_2=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[1] + ".pdb")
       
       ## Minimise the lonely partners
-      minmover.apply(pose_prot_1)
-      minmover.apply(pose_prot_2)
+      #minmover.apply(pose_prot_1)
+      #minmover.apply(pose_prot_2)
       
       ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy and compute Z matrix.
       ##### FOR THE RECEPTOR
