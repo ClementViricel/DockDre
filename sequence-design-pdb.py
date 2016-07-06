@@ -450,7 +450,7 @@ def get_Z_matrix(pose, optsolution, optenergy, resfile, flexibles,out_matrix):
 
 def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta):
   if os.path.exists( os.getcwd() + '/' + pdb_file ) and pdb_file:
-    init()
+    init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
     pose=Pose()
     pose=pose_from_pdb(pdb_file)
     input_file_name=os.getcwd() + '/' + pdb_file.split('.pdb')[0]
