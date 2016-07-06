@@ -23,11 +23,16 @@ parser.add_option('--nb', dest = 'nb',
     default = 5,    
     help = 'Number of docked pose taken as instance in Z computation' )
 
+parser.add_option('--temp', dest = 'temp',
+    default = 298.0,    
+    help = 'Temperature in the experiments' )
+
 (options,args) = parser.parse_args()
 
 pdb_file=options.pdb_file
 seq_file = options.seq_file
 nb_instance=int(options.nb)
+temp=float(options.temp)
 
 sequences=[]
 sequences.append(pdb_file.split('.pdb')[0])
@@ -75,7 +80,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
             for i in range(0,len(sol)):
               if not i+1 in flexibles:
                 opt+=","+str(i)+"="+str(sol[i])
-            command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/"+instance+".uai","-logz","-ztmp","-x="+opt]
+            command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/"+instance+".uai","-logz","-ztmp="+str(temp),"-x="+opt]
             tb2out=check_output(command)
             tb2out=tb2out.split('\n')
             for line in tb2out:
@@ -95,7 +100,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
           for i in range(0,len(sol)):
             if not i+1 in flexibles:
               opt+=","+str(i)+"="+str(sol[i])
-          command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/"+instance+".uai","-logz","-ztmp","-x="+opt]
+          command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/"+instance+".uai","-logz","-ztmp"+str(temp),"-x="+opt]
           tb2out=check_output(command)
           tb2out=tb2out.split('\n')
           for line in tb2out:
@@ -113,7 +118,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       for i in range(0,len(sol_rec)):
         if not i+1 in flexibles_rec:
           opt+=","+str(i)+"="+str(sol_rec[i])
-      command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/receptor.uai","-logz","-ztmp","-x="+opt]
+      command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/receptor.uai","-logz","-ztmp"+str(temp),"-x="+opt]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
@@ -131,7 +136,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
       for i in range(0,len(sol_lig)):
         if not i+1 in flexibles_lig_renum:
           opt+=","+str(i)+"="+str(sol_lig[i])
-      command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/ligand.uai","-logz","-ztmp","-x="+opt]
+      command=["toulbar2",os.getcwd()+'/'+mut+"/UAI/ligand.uai","-logz","-ztmp"+str(temp),"-x="+opt]
       tb2out=check_output(command)
       tb2out=tb2out.split('\n')
       for line in tb2out:
