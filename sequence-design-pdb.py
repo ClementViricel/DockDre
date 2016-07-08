@@ -125,6 +125,7 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
     ## The interface_list= [[interface_1],[interface_2]]
     copy_pose=Pose()
     copy_pose.assign(pose)
+    setup_foldtree(copy_pose, "A_B", Vector1([1]))
     score(copy_pose)
     interface = Interface(1)
     interface.distance(dist)
@@ -278,7 +279,9 @@ def compute_interactions(pose, resfile, out):
     tolerance = 0.01
     min_type = "dfpmin"
     minmover = MinMover(movemap, score_fxn, min_type, tolerance, True) 
-    minmover.apply(copy_pose)
+    #minmover.apply(copy_pose)
+    relax=FastRelax(score_fxn)
+    relax.apply(pose)
     
     task_design = TaskFactory.create_packer_task(copy_pose)
     task_design.initialize_from_command_line()
