@@ -152,7 +152,7 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
       center=centroid_mut
     return (interface_axis, center)
 
-def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts, is_rosetta):
+def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts):
 
     copy_pose = Pose()
     copy_pose.assign(pose)
@@ -175,11 +175,11 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     tb2out=call(command)
     
     io = PDBIO()
-    Optimal_Energies=[]
     structure=trans_and_rot_to_origin(out+"/PDB/"+mut+"_min.pdb", center, interface_axis) ## Translate the complex to have the center of rotation on origin
     Teta=np.arange(-rotation,rotation+rot_step,rot_step)
     Delta=np.arange(-translation,translation+trans_step,trans_step)
     counter=1
+    out_command=open("matrix-command.txt",'ab')
     for delta in Delta: ## loop for trans
       for teta in Teta: ## loop for rot
         structure_copy=structure.copy()
@@ -189,26 +189,11 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
         chain_list[1].transform(rotation, translation)
         io.set_structure(structure_copy)
         io.save(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
-        pose=Pose()
-        pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
-        compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
-        os.rename(out+"/LG/"+mut+"_"+str(counter)+".uai", out+"/UAI/"+mut+"_"+str(counter)+".uai")
-        command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG","-w="+out+"/SOL/"+mut+"_"+str(counter)+".sol"] # FSCP
-        tb2out=check_output(command)
-        tb2out=tb2out.split('\n')
-        for line in tb2out:
-          line_split=line.split()
-          if ("Optimum:" in line_split) and ("Energy:" in line_split):
-            OptEnergy=float(line_split[3])
-
-        Optimal_Energies.append(OptEnergy)
+        command="python command_d_t.py --out "+out+" --count "+str(counter)+" --delta "+str(delta)+" --teta "+str(teta)+" --mut "+mut+"\n"
+        out_command.write(command)
         counter += 1
-          
-    E_array = np.array(Optimal_Energies)
-    sort_index = np.argsort(E_array)
-    file_sort_E=open(out+"/score.sc",'w')
-    for opt in sort_index:
-      file_sort_E.write(str(opt)+' '+str(Optimal_Energies[opt])+'\n')  
+    out_command.close()
+        
 
 def compute_interactions(pose, resfile, out):
     copy_pose=Pose()
@@ -303,8 +288,10 @@ def compute_interactions(pose, resfile, out):
     g.close()
     h.close()
     
-def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, translation_step, rotation_step, is_rosetta):
+def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, translation_step, rotation_step):
   if os.path.exists( os.getcwd() + '/' + pdb_file ) and pdb_file:
+    if os.path.exists ("matrix-command.txt"):
+      os.remove("matrix-command.txt")
     init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
     pose=Pose()
     pose=pose_from_pdb(pdb_file)
@@ -368,13 +355,14 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       if not os.path.exists(mut_folder+'/SOL'):
         os.mkdir(mut_folder+'/SOL')
 
-      #if uai==True:
       if not os.path.exists(mut_folder+'/UAI'):
         os.mkdir(mut_folder+'/UAI')
 
-      #if lg==True:
       if not os.path.exists(mut_folder+'/LG'):
         os.mkdir(mut_folder+'/LG')
+      
+      if not os.path.exists(mut_folder+'/score.sc'):
+        os.remove(mut_folder+'/score.sc')
         
       mut_pose.dump_pdb(mut_folder+"/PDB/"+mut+'.pdb')
 
@@ -432,7 +420,7 @@ parser.add_option('--seq', dest = 'seq_file',
     help = 'Sequences to map' )
 
 parser.add_option( '--trans', dest='translation_size' ,
-    default = 1.0,    
+    default = 2.0,    
     help = 'Size of translation segment')
   
 parser.add_option( '--rot', dest='rotation_size' ,
@@ -446,7 +434,7 @@ parser.add_option( '--trans_step', dest='translation_step' ,
 parser.add_option( '--rot_step', dest='rotation_step' ,
     default = 2.0,   
     help = 'Size of rotation steps')
-    
+        
 (options,args) = parser.parse_args()
 
 pdb_file=options.pdb_file
