@@ -103,21 +103,6 @@ def trans_and_rot_to_origin(pdb,center,axis):
     
   return structure
 
-def sample_rot_trans_space(structure,rotation,rot_step,translation,trans_step,out,mut):
-      io = PDBIO()
-      Teta=np.arange(-rotation,rotation,rot_step)
-      Delta=np.arange(-translation,translation,trans_step)
-      counter=1
-      for delta in Delta: ## loop for trans
-        for teta in Teta: ## loop for rot
-          structure_copy=structure.copy()
-          rotation=rotaxis(np.pi/180*teta, Vector(0,0,1)) ## rotation matrice
-          translation=np.array((0, 0, delta), 'f') ## translation matrice ????
-          chain_list = Selection.unfold_entities(structure_copy, 'C')
-          chain_list[1].transform(rotation, translation)
-          io.set_structure(structure_copy)
-          io.save(out+'/PDB/'+mut+'_'+str(counter)+".pdb")
-
 def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation/translation axis and the center
     
     ## Compute interface at "dist" of distance and store: 
@@ -125,7 +110,7 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
     ## The interface_list= [[interface_1],[interface_2]]
     copy_pose=Pose()
     copy_pose.assign(pose)
-    setup_foldtree(copy_pose, "A_B", Vector1([1]))
+
     score(copy_pose)
     interface = Interface(1)
     interface.distance(dist)
@@ -134,40 +119,25 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
     interface_residue = interface.pair_list()
     
     centroid_interface=[]
-    for interface in interface_residue: ## Compute the axis by taking the whole interfaces. (Only for the native)
+    for interface in interface_residue: ## Compute the axis by taking the whole interfaces.
       centroid_interface.append(centroid([copy_pose.residue(res).xyz('CA') for res in interface])) ## store the centroids of the residue in the interfaces.
     interface_axis= map(sub,centroid_interface[0],centroid_interface[1])
     center=centroid_interface[0]
-    
-    ## If there is mutation. The axis change by moving to the centroid of mutable residue.
-    if (len(resmuts) != 0 and len(interface_residue[1])!=0 and len(interface_residue[2])!=0 ) :
-      centroid_muts=[] ## array for the mutables centroids
-      centroid_flexs=[] ## array for the flexibles centroids i.e centroid of flexible 1, flexible 2 etc...
-      for res in resmuts: ## Calculate the centroid of flexibles of (of res in resnames)
-        centroid_flexs.append(centroid([copy_pose.residue(i).xyz("CA") for i in sorted(list(set(contact[int(res)])))]))
-        centroid_muts.append(copy_pose.residue(int(res)).xyz("CA"))
-      centroid_flex=centroid(centroid_flexs) ## calculate the centroid of flexibles centroids
-      centroid_mut=centroid(centroid_muts) ## calculate the centroid of mutables
-      interface_axis = [centroid_flex[0]-centroid_mut[0],centroid_flex[1]-centroid_mut[1],centroid_flex[2]-centroid_mut[2]] ## Calculate the axis 
-      center=centroid_mut
     return (interface_axis, center)
 
-def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts):
+def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts,scorefxn):
 
     copy_pose = Pose()
     copy_pose.assign(pose)
     dock_jump = 1
 
-    setup_foldtree(copy_pose, partners, Vector1([1]))
+    scorefxn(copy_pose)
 
-    scorefxn_talaris = create_score_function('talaris2014')
-    scorefxn_talaris(copy_pose)
-    
-    compute_interactions(copy_pose,'full.resfile', out+"/LG/"+mut+'_min.LG')
+    compute_interactions(copy_pose,'full.resfile', out+"/LG/"+mut+'_min.LG',scorefxn)
     copy_pose.dump_pdb(out+"/PDB/"+mut+"_min.pdb")
     os.rename(out+"/LG/"+mut+'_min.uai', out+"/UAI/"+mut+'_min.uai')
     
-    interface_axis_center=Interface_axis(copy_pose, 10, resmuts, scorefxn_talaris)
+    interface_axis_center=Interface_axis(copy_pose, 10, resmuts, scorefxn)
     interface_axis=interface_axis_center[0]
     center=interface_axis_center[1]
     
@@ -180,45 +150,46 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
     Delta=np.arange(-translation,translation+trans_step,trans_step)
     counter=1
     out_command=open("matrix-command.txt",'ab')
+    three_dim=[Vector(0,0,1),Vector(0,1,0),Vector(1,0,0)] ## Three dimentional vector, forgot ones ?
     for delta in Delta: ## loop for trans
-      for teta in Teta: ## loop for rot
-        structure_copy=structure.copy()
-        rotation=rotaxis(np.pi/180*teta, Vector(0,0,1)) ## rotation matrice
-        translation=np.array((0, 0, delta), 'f') ## translation matrice ????
-        chain_list = Selection.unfold_entities(structure_copy, 'C')
-        chain_list[1].transform(rotation, translation)
-        io.set_structure(structure_copy)
-        io.save(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
-        command="python command_d_t.py --out "+out+" --count "+str(counter)+" --delta "+str(delta)+" --teta "+str(teta)+" --mut "+mut+"\n"
-        out_command.write(command)
-        counter += 1
+      for teta in Teta: ## loop for rotations along the three axis
+		  for i in three_dim:
+			structure_copy=structure.copy()
+			rotation=rotaxis(np.pi/180*teta, i) ## Matrice de rotation de vecteur (0,0,1) et de centre (0,0) (vecteur "interface_axis" et centre "center")
+			translation=np.array((0, 0, delta), 'f') ## translation
+			chain_list = Selection.unfold_entities(structure_copy, 'C') #Selectionne les chaines A et B (il faut bien les renommer avant)
+			chain_list[1].transform(rotation, translation) # Rotate et Translate la chaine B seulement
+			io.set_structure(structure_copy)
+			io.save(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
+			command="python command_d_t.py --out "+out+" --count "+str(counter)+" --delta "+str(delta)+" --teta "+str(teta)+" --mut "+mut+"\n"
+			out_command.write(command)
+			counter += 1
     out_command.close()
         
 
-def compute_interactions(pose, resfile, out):
+def compute_interactions(pose, resfile, out, score_fxn):
     copy_pose=Pose()
     copy_pose.assign(pose)
-    score_fxn = create_score_function('talaris2014')
    
     ## Minimization
     movemap = MoveMap()
     movemap.set_jump(1, True)
-    movemap.set_bb(True)
-    tolerance = 0.01
-    min_type = "dfpmin"
+    movemap.set_bb(True) ## Move Backbone
+    tolerance = 0.001 ## Set the tolerance, minimum will be in tolerance of a local min
+    min_type = "dfpmin" ## Quasi Newton
     minmover = MinMover(movemap, score_fxn, min_type, tolerance, True) 
-    #minmover.apply(copy_pose)
-    relax=FastRelax(score_fxn)
-    relax.apply(copy_pose)
+    minmover.apply(copy_pose)
+    #relax=FastRelax(score_fxn)
+    #relax.apply(copy_pose)
     
     task_design = TaskFactory.create_packer_task(copy_pose)
     task_design.initialize_from_command_line()
     parse_resfile(copy_pose, task_design, resfile)
     copy_pose.update_residue_neighbors()
-    png = create_packer_graph(copy_pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
+    png = create_packer_graph(copy_pose, score_fxn, task_design)
     rotsets = RotamerSets()
     ig = pack_rotamers_setup(copy_pose, score_fxn, task_design, rotsets)
-    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, copy_pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
+    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, copy_pose, score_fxn, png) 
     out_uai=out.split('.LG')[0]+'.uai'
     g = open(out,'w')
     h = open(out_uai,'w')
@@ -288,19 +259,22 @@ def compute_interactions(pose, resfile, out):
     g.close()
     h.close()
     
-def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, translation_step, rotation_step):
+def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, translation_step, rotation_step,beta):
   if os.path.exists( os.getcwd() + '/' + pdb_file ) and pdb_file:
     if os.path.exists ("matrix-command.txt"):
       os.remove("matrix-command.txt")
-    init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
+    if beta==True:
+        init('-ex1 false -ex1aro false -ex2 false -ex2aro false -beta')
+        scorefxn = create_score_function('beta_july15')
+    elif beta==False:
+        init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
+        scorefxn = create_score_function('talaris2014')
+
     pose=Pose()
     pose=pose_from_pdb(pdb_file)
     setup_foldtree(pose,"A_B",Vector1([1]))
     input_file_name=os.getcwd() + '/' + pdb_file.split('.pdb')[0]
 
-    ## create a score function
-    scorefxn = create_score_function('talaris2014')
-    
     ## parse the fasta sequence file into a dictionary : sequences[#position]=[list of mutation]
     sequences={}
     sequences[pdb_file.split('.pdb')[0]]=[]
@@ -321,18 +295,18 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
     
     flexibles=sorted(flexibles_rec+flexibles_lig)
     
-    ## First minimisation (may do fastrelax ?) 
+    ## First minimisation
     #movemap = MoveMap()
     #movemap.set_jump(1, True)
     #movemap.set_bb(True)
-    #tolerance = 0.01
+    #tolerance = 0.001
     #min_type = "dfpmin"
     #minmover = MinMover(movemap, scorefxn, min_type, tolerance, True) 
     #minmover.apply(pose)
+    #pose.dump_pdb(os.getcwd()+"/"+input_file_name+"_min_0.pdb")
     
-    #pose.dump_pdb(input_file_name+"_min.pdb")
     
-    ###### Mutation Loop ####
+    ###### Mutation Loop #### Can be paralelle ?
     for mut in sequences.keys():
       mut_pose=Pose()
       mut_pose.assign(pose)
@@ -361,11 +335,11 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       if not os.path.exists(mut_folder+'/LG'):
         os.mkdir(mut_folder+'/LG')
       
-      if not os.path.exists(mut_folder+'/score.sc'):
+      if os.path.exists(mut_folder+'/score.sc'):
         os.remove(mut_folder+'/score.sc')
         
       mut_pose.dump_pdb(mut_folder+"/PDB/"+mut+'.pdb')
-
+      
       io = PDBIO()
       pdb = PDBParser().get_structure(mut, mut_folder+"/PDB/"+mut+".pdb")
       chain_name=[]
@@ -377,32 +351,28 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
         chain_name.append(chain.get_id())
       partners=chain_name[0]+'_'+chain_name[1]
       
-      ## Separate the two chains ex: E_I or A_B. Need to rename if more than two chains ?
+      ## Separate the two chains. Need to rename in A and B
       pose_prot_1=Pose()
       pose_prot_2=Pose()
       pose_prot_1=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[0] + ".pdb")
       pose_prot_2=pose_from_pdb(mut_folder+'/PDB/'+pdb.get_id() + "_" + chain_name[1] + ".pdb")
-      
-      ## Minimise the lonely partners
-      #minmover.apply(pose_prot_1)
-      #minmover.apply(pose_prot_2)
-      
-      ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy and compute Z matrix.
+            
+      ###### Compute FULL SCP matrix, Calculate the optimal solution and optimal energy.
       ##### FOR THE RECEPTOR
-      compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/LG/receptor.LG')
+      compute_interactions(pose_prot_1,'full.resfile', mut_folder+'/LG/receptor.LG',scorefxn)
       os.rename(mut_folder+'/LG/receptor.uai', mut_folder+'/UAI/receptor.uai')
       command=["toulbar2",mut_folder+"/LG/receptor.LG","-w="+mut_folder+"/SOL/receptor.sol"]
       tb2out=call(command)
       
       ##### FOR THE LIGAND
       flexibles_lig_renum=[i-int(chain_length[0]) for i in flexibles_lig]
-      compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/LG/ligand.LG')
+      compute_interactions(pose_prot_2,'full.resfile', mut_folder+'/LG/ligand.LG',scorefxn)
       os.rename(mut_folder+'/LG/ligand.uai', mut_folder+'/UAI/ligand.uai')
       command=["toulbar2",mut_folder+"/LG/ligand.LG","-w="+mut_folder+"/SOL/ligand.sol"]
       tb2out=call(command)
 
       ## Loop for trans rot
-      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts)
+      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts,scorefxn)
     
       print "Finish Processing Mutation:",mut
   else:
@@ -434,7 +404,10 @@ parser.add_option( '--trans_step', dest='translation_step' ,
 parser.add_option( '--rot_step', dest='rotation_step' ,
     default = 2.0,   
     help = 'Size of rotation steps')
-        
+
+parser.add_option( '--beta', dest='beta' ,
+    default = False,   
+    help = 'Beta scoring function')       
 (options,args) = parser.parse_args()
 
 pdb_file=options.pdb_file
@@ -443,11 +416,13 @@ translation_size=float(options.translation_size)
 rotation_size=float(options.rotation_size)
 translation_step=float(options.translation_step)
 rotation_step=float(options.rotation_step)
+beta=options.beta
 
 
 ################# MUTATION, PDB and MATRIX PRODUCTION #############
 
 start_time=datetime.now()
-mutation_rot_trans(pdb_file, sequence_file, translation_size, rotation_size, translation_step, rotation_step)
+print "Score function beta:",beta
+mutation_rot_trans(pdb_file, sequence_file, translation_size, rotation_size, translation_step, rotation_step,beta)
 end_time=datetime.now()-start_time
 print end_time
