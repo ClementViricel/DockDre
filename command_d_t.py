@@ -25,29 +25,6 @@ from rosetta.protocols.scoring import Interface
 from toolbox import *
 import StringIO
 
-one_to_three = {'A': 'ALA',
-                'R': 'ARG',
-                'N': 'ASN',
-                'D': 'ASP',
-                'C': 'CYS',
-                'E': 'GLU',
-                'Q': 'GLN',
-                'G': 'GLY',
-                'H': 'HIS',
-                'I': 'ILE',
-                'L': 'LEU',
-                'K': 'LYS',
-                'M': 'MET',
-                'F': 'PHE',
-                'P': 'PRO',
-                'S': 'SER',
-                'T': 'THR',
-                'W': 'TRP',
-                'Y': 'TYR',
-                'V': 'VAL',
-            }
-
-
 reference_energy={
     'ALA': 0.773742,
     'ARG': 0.443793,
@@ -74,30 +51,27 @@ reference_energy={
 
 
 
-def compute_interactions(pose, resfile, out):
-    copy_pose=Pose()
-    copy_pose.assign(pose)
-    score_fxn = create_score_function('talaris2014')
-   
+def compute_interactions(pose, resfile, out, score_fxn):
+
     ## Minimization
     movemap = MoveMap()
     movemap.set_jump(1, True)
     movemap.set_bb(True)
-    tolerance = 0.01
+    tolerance = 0.001
     min_type = "dfpmin"
     minmover = MinMover(movemap, score_fxn, min_type, tolerance, True) 
-    #minmover.apply(copy_pose)
-    relax=FastRelax(score_fxn)
-    relax.apply(copy_pose)
+    minmover.apply(pose)
+    #relax=FastRelax(score_fxn)
+    #relax.apply(pose)
     
-    task_design = TaskFactory.create_packer_task(copy_pose)
+    task_design = TaskFactory.create_packer_task(pose)
     task_design.initialize_from_command_line()
-    parse_resfile(copy_pose, task_design, resfile)
-    copy_pose.update_residue_neighbors()
-    png = create_packer_graph(copy_pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
+    parse_resfile(pose, task_design, resfile)
+    pose.update_residue_neighbors()
+    png = create_packer_graph(pose, score_fxn, task_design)  #Uncomment for latest Pyrosetta versions
     rotsets = RotamerSets()
-    ig = pack_rotamers_setup(copy_pose, score_fxn, task_design, rotsets)
-    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, copy_pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
+    ig = pack_rotamers_setup(pose, score_fxn, task_design, rotsets)
+    ig = InteractionGraphFactory.create_and_initialize_two_body_interaction_graph(task_design, rotsets, pose, score_fxn, png)  #Uncomment for latest Pyrosetta versions
     out_uai=out.split('.LG')[0]+'.uai'
     g = open(out,'w')
     h = open(out_uai,'w')
@@ -168,7 +142,7 @@ def compute_interactions(pose, resfile, out):
     h.close()
 
 
-init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
+
 parser=optparse.OptionParser()
 
 parser.add_option('--mut', dest = 'mut',
@@ -198,15 +172,28 @@ teta=float(options.teta)
 mut=options.mut
 out=options.out
 counter=int(options.counter)
-      
+
+# Score Function Beta (true)  or Not (false).
+beta = False
+if beta == True:
+    init('-ex1 false -ex1aro false -ex2 false -ex2aro false -beta')
+    score_fxn = create_score_function('beta_july15')
+elif beta == False:
+    init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
+	score_fxn = create_score_function('talaris2014')
+        
 pose=Pose()
 pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
 setup_foldtree(pose,"A_B",Vector1([1]))
-compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG") ## LG for FSCP
+
+compute_interactions(pose,'full.resfile', out+"/LG/"+mut+"_"+str(counter)+".LG",score_fxn) ## LG for FSCP
+pose.dump_pdb(out+"/PDB/"+mut+"_"+str(counter)+"_min.pdb")
 os.rename(out+"/LG/"+mut+"_"+str(counter)+".uai", out+"/UAI/"+mut+"_"+str(counter)+".uai")
+
 command=["toulbar2",out+"/LG/"+mut+"_"+str(counter)+".LG","-w="+out+"/SOL/"+mut+"_"+str(counter)+".sol"] # FSCP
 tb2out=check_output(command)
 tb2out=tb2out.split('\n')
+
 for line in tb2out:
   line_split=line.split()
   if ("Optimum:" in line_split) and ("Energy:" in line_split):
