@@ -165,6 +165,10 @@ parser.add_option( '--count', dest='counter' ,
     default = "out",   
     help = 'out file')
 
+parser.add_option( '--beta', dest='beta' ,
+    default = False,   
+    help = 'Beta scoring function')    
+
 (options,args) = parser.parse_args()
 
 delta=float(options.delta)
@@ -172,9 +176,8 @@ teta=float(options.teta)
 mut=options.mut
 out=options.out
 counter=int(options.counter)
+beta=options.beta
 
-# Score Function Beta (true)  or Not (false).
-beta = False
 if beta == True:
     init('-ex1 false -ex1aro false -ex2 false -ex2aro false -beta')
     score_fxn = create_score_function('beta_july15')

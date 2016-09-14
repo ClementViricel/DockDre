@@ -125,7 +125,7 @@ def Interface_axis(pose, dist, resmuts, score): ## return the interface rotation
     center=centroid_interface[0]
     return (interface_axis, center)
 
-def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts,scorefxn):
+def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot_step, out, mut, resmuts,scorefxn,beta):
 
     copy_pose = Pose()
     copy_pose.assign(pose)
@@ -161,7 +161,10 @@ def rot_trans(pose, partners, flexibles, translation, rotation , trans_step, rot
 			chain_list[1].transform(rotation, translation) # Rotate et Translate la chaine B seulement
 			io.set_structure(structure_copy)
 			io.save(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
-			command="python command_d_t.py --out "+out+" --count "+str(counter)+" --delta "+str(delta)+" --teta "+str(teta)+" --mut "+mut+"\n"
+			if beta==True:
+				command="python command_d_t.py --out "+out+" --count "+str(counter)+" --delta "+str(delta)+" --teta "+str(teta)+" --mut "+mut+"--beta\n"
+			elif beta==False:
+				command="python command_d_t.py --out "+out+" --count "+str(counter)+" --delta "+str(delta)+" --teta "+str(teta)+" --mut "+mut+"\n"
 			out_command.write(command)
 			counter += 1
     out_command.close()
@@ -372,7 +375,7 @@ def mutation_rot_trans(pdb_file, seq_file, translation_size, rotation_size, tran
       tb2out=call(command)
 
       ## Loop for trans rot
-      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts,scorefxn)
+      rot_trans(mut_pose, partners, flexibles, translation_size, rotation_size, translation_step, rotation_step, mut_folder,mut,resmuts,scorefxn,beta)
     
       print "Finish Processing Mutation:",mut
   else:
