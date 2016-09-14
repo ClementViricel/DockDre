@@ -69,6 +69,8 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
   for seq in seqfile.readlines():
     sequences.append(seq[:-1])
   seqfile.close()
+  if os.path.exists('command.txt'):
+      os.remove('command.txt')
   out=open('command.txt','ab')
   for mut in sequences:
     print mut

@@ -50,7 +50,7 @@ if os.path.exists( os.getcwd() + '/' + seq_file ) and seq_file:
               time.append(float(line.split()[12]))
               out.write("Receptor "+line.split()[0]+' '+line.split()[12]+'\n')
 
-        if file_Z=="ligand.Zlog":
+        elif file_Z=="ligand.Zlog":
           f=open(os.getcwd() + '/' + mut + '/Z/'+file_Z,'r')
           for line in f:
             if "<= Log(Z) <=" in line:
