@@ -183,7 +183,7 @@ if beta == True:
     score_fxn = create_score_function('beta_july15')
 elif beta == False:
     init('-ex1 false -ex1aro false -ex2 false -ex2aro false')
-	score_fxn = create_score_function('talaris2014')
+    score_fxn = create_score_function('talaris2014')
         
 pose=Pose()
 pose=pose_from_pdb(out+'/PDB/'+mut+'_'+str(counter)+"_("+str(delta)+")T_("+str(teta)+")R.pdb")
